@@ -1,6 +1,6 @@
 -- ======================================================
 -- MAX EDITION & DEEPSEEK ALL GAMES
--- MOBILE ADAPTED (Кнопка консоли + Джойстик)
+-- MOBILE ADAPTED + FLY FIX + MM2 ESP
 -- ======================================================
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -221,8 +221,47 @@ local function AddSaitamaEffect(part)
 end
 
 -- ======================================================
--- ESP (HIGHLIGHT + TEXT)
+-- ESP (MM2 TEAMCHECK + AUTO UPDATE)
 -- ======================================================
+local function GetMM2Role(pl)
+    local char = pl.Character
+    if not char then return "Innocent" end
+
+    local murdererValue = ReplicatedStorage:FindFirstChild("Murderer")
+    local murdererName = nil
+    if murdererValue then
+        if murdererValue:IsA("StringValue") then
+            murdererName = murdererValue.Value
+        elseif murdererValue:IsA("ObjectValue") and murdererValue.Value then
+            murdererName = murdererValue.Value.Name
+        end
+    end
+
+    if murdererName and pl.Name == murdererName then
+        return "Murderer"
+    end
+
+    if char:FindFirstChild("Knife") or char:FindFirstChild("MurdererKnife") then
+        return "Murderer"
+    end
+
+    if char:FindFirstChild("Gun") or char:FindFirstChild("Pistol") or char:FindFirstChild("Revolver") then
+        return "Sheriff"
+    end
+
+    return "Innocent"
+end
+
+local function GetRoleColor(role)
+    if role == "Murderer" then
+        return Color3.fromRGB(255, 50, 50)
+    elseif role == "Sheriff" then
+        return Color3.fromRGB(50, 120, 255)
+    else
+        return Color3.fromRGB(50, 255, 100)
+    end
+end
+
 function ClearESP()
     for _, obj in pairs(Cheat.Runtime.ESPTexts) do
         pcall(function() obj:Remove() end)
@@ -247,20 +286,23 @@ function AddESPForPlayer(pl)
     local head = char:FindFirstChild("Head")
     if not hum or not root or not head then return end
 
+    local role = GetMM2Role(pl)
+    local color = GetRoleColor(role)
+
     local txt = Drawing.new("Text")
     txt.Size = 13
     txt.Center = true
     txt.Outline = true
     txt.OutlineColor = Color3.fromRGB(0, 0, 0)
-    txt.Color = Color3.fromRGB(255, 255, 255)
+    txt.Color = color
     txt.Visible = false
     Cheat.Runtime.ESPTexts[pl] = txt
 
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Highlight"
-    highlight.FillColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillColor = color
     highlight.FillTransparency = 0.7
-    highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+    highlight.OutlineColor = color
     highlight.OutlineTransparency = 0.3
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = char
@@ -291,6 +333,8 @@ function UpdateESP()
 
             if hum and hum.Health > 0 and root and head then
                 local txt = Cheat.Runtime.ESPTexts[pl]
+                local highlight = Cheat.Runtime.ESPHighlights[pl]
+
                 if txt then
                     local sm = Cheat.Runtime.ESPSmoothed[pl]
                     if not sm then
@@ -305,6 +349,18 @@ function UpdateESP()
                     local rootPos, rootVisible = Camera:WorldToScreenPoint(sm.root)
                     local headPos, headVisible = Camera:WorldToScreenPoint(sm.head)
 
+                    local role = GetMM2Role(pl)
+                    local color = GetRoleColor(role)
+
+                    if txt.Color ~= color then
+                        txt.Color = color
+                    end
+
+                    if highlight then
+                        highlight.FillColor = color
+                        highlight.OutlineColor = color
+                    end
+
                     if rootVisible and headVisible then
                         local camDir = Camera.CFrame.LookVector
                         local toTarget = (root.Position - Camera.CFrame.Position).Unit
@@ -316,8 +372,7 @@ function UpdateESP()
                             local posX = (headPos.X + rootPos.X) / 2
 
                             txt.Position = Vector2.new(posX, posY)
-                            txt.Text = string.format("%s  [%d HP]  [%d м]", pl.Name, math.floor(hum.Health), math.floor(dist))
-                            txt.Color = Color3.fromRGB(255, 255, 255)
+                            txt.Text = string.format("%s [%s] [%d HP] [%d м]", pl.Name, role, math.floor(hum.Health), math.floor(dist))
                             txt.Visible = true
                         else
                             txt.Visible = false
@@ -345,6 +400,15 @@ Players.PlayerAdded:Connect(function(pl)
         task.wait(0.5)
         AddESPForPlayer(pl)
     end
+end)
+
+Players.PlayerAdded:Connect(function(pl)
+    pl.CharacterAdded:Connect(function()
+        if Cheat.Flags.ESP then
+            task.wait(0.5)
+            AddESPForPlayer(pl)
+        end
+    end)
 end)
 
 Players.PlayerRemoving:Connect(function(pl)
