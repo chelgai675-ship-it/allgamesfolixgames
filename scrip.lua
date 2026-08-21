@@ -1,6 +1,6 @@
- -- ======================================================
+-- ======================================================
 -- MAX EDITION & DEEPSEEK ALL GAMES
--- FLY FIX + UNIVERSAL TEAMCHECK ESP
+-- ESP ВОЗВРАЩЁН В КОНСОЛЬ
 -- ======================================================
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -884,7 +884,7 @@ Cmds.unload = {
 }
 
 -- ======================================================
--- FLY (ИСПРАВЛЕННЫЙ)
+-- FLY
 -- ======================================================
 Cmds.fly = {
     desc = "Включить/выключить полет",
@@ -1074,4 +1074,4 @@ StarterGui:SetCore("SendNotification", {
     Duration = 5
 })
 
-print("✅ MAX EDITION & DEEPSEEK загружена | FLY FIX + TEAMCHECK ESP")
+print("✅ MAX EDITION & DEEPSEEK загружена | ESP В КОНСОЛИ")
