@@ -1,6 +1,6 @@
 -- ======================================================
 -- MAX EDITION & DEEPSEEK ALL GAMES
--- ВЕРСИЯ 10/10 (Cheat.Config / Flags / Runtime)
+-- MOBILE ADAPTED (Кнопка консоли + Джойстик)
 -- ======================================================
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -73,28 +73,37 @@ local OutputScrolling = nil
 local Cmds = {}
 
 -- ======================================================
--- ОТКРЫТИЕ ПО ДВОЙНОМУ RIGHT SHIFT
+-- ОПРЕДЕЛЯЕМ ТИП УСТРОЙСТВА
 -- ======================================================
+local IsMobile = UserInputService.TouchEnabled
+local IsDesktop = not IsMobile
+
+-- ======================================================
+-- ОТКРЫТИЕ КОНСОЛИ
+-- ======================================================
+local function ToggleConsole()
+    Cheat.Runtime.ConsoleVisible = not Cheat.Runtime.ConsoleVisible
+    if not GUI or not GUI.Parent then
+        CreateConsole()
+    end
+    if GUI then
+        GUI.Enabled = Cheat.Runtime.ConsoleVisible
+        if Cheat.Runtime.ConsoleVisible and InputBox then
+            task.wait(0.1)
+            InputBox:CaptureFocus()
+        end
+    end
+end
+
+-- ПК: двойной RightShift
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.RightShift then
-        if not Cmds then return end
-
         local currentTime = tick()
         if currentTime - LastRightShiftPress < 0.5 then
             RightShiftPressCount = RightShiftPressCount + 1
             if RightShiftPressCount >= 2 then
                 RightShiftPressCount = 0
-                Cheat.Runtime.ConsoleVisible = not Cheat.Runtime.ConsoleVisible
-                if not GUI or not GUI.Parent then
-                    CreateConsole()
-                end
-                if GUI then
-                    GUI.Enabled = Cheat.Runtime.ConsoleVisible
-                    if Cheat.Runtime.ConsoleVisible and InputBox then
-                        task.wait(0.1)
-                        InputBox:CaptureFocus()
-                    end
-                end
+                ToggleConsole()
             end
         else
             RightShiftPressCount = 1
@@ -102,6 +111,26 @@ UserInputService.InputBegan:Connect(function(input)
         LastRightShiftPress = currentTime
     end
 end)
+
+-- Мобильная кнопка
+local MobileButton = Instance.new("ScreenGui")
+MobileButton.Name = "MobileOpenButton"
+MobileButton.ResetOnSpawn = false
+MobileButton.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 60, 0, 60)
+OpenBtn.Position = UDim2.new(0.9, 0, 0.05, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 60)
+OpenBtn.BorderSizePixel = 2
+OpenBtn.BorderColor3 = Color3.fromRGB(255, 215, 0)
+OpenBtn.Text = "⚡"
+OpenBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
+OpenBtn.TextScaled = true
+OpenBtn.Font = Enum.Font.GothamBold
+OpenBtn.Parent = MobileButton
+
+OpenBtn.MouseButton1Click:Connect(ToggleConsole)
 
 -- ======================================================
 -- СОХРАНЕНИЕ НАСТРОЕК
@@ -134,7 +163,6 @@ local function LoadSettings()
         end
     end
 
-    -- Всё выключено при старте
     Cheat.Flags.ESP = false
     Cheat.Flags.Fly = false
     Cheat.Flags.Noclip = false
@@ -146,14 +174,6 @@ local function LoadSettings()
 end
 
 LoadSettings()
-
--- ======================================================
--- ОПРЕДЕЛЯЕМ ТИП УСТРОЙСТВА
--- ======================================================
-local IsMobile = UserInputService.TouchEnabled
-local IsDesktop = not IsMobile
-
-local IsMM2 = game.PlaceId == 142823291 or game.PlaceId == 742596525 or game.PlaceId == 4257282231
 
 -- ======================================================
 -- РАДУГА
@@ -391,7 +411,7 @@ function CreateConsole()
     InfoLabel.Size = UDim2.new(1, 0, 0, 20)
     InfoLabel.Position = UDim2.new(0, 0, 0, 40)
     InfoLabel.BackgroundTransparency = 1
-    InfoLabel.Text = "🟢 Двойной RightShift - консоль | ESP Highlight"
+    InfoLabel.Text = "🟢 Кнопка ⚡ или двойной RightShift"
     InfoLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
     InfoLabel.TextScaled = true
     InfoLabel.Font = Enum.Font.Gotham
@@ -523,11 +543,6 @@ Cmds.help = {
             "antiafk", "autoclick", "spin", "sit", "jump", "tpall",
             "freeze", "time", "weather", "reset", "unload"
         }
-        if IsMM2 then
-            table.insert(commands, "mm2aimbot")
-            table.insert(commands, "mm2autoshoot")
-            table.insert(commands, "mm2target")
-        end
         for _, name in pairs(commands) do
             if Cmds[name] then
                 output(name .. " - " .. Cmds[name].desc, Color3.fromRGB(200, 200, 255))
@@ -572,9 +587,6 @@ Cmds.autoclick = {
                         game:GetService("VirtualInputManager"):SendMouseButtonEvent(0, 0, 0, true, game, 0)
                         task.wait(0.01)
                         game:GetService("VirtualInputManager"):SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                    end)
-                    pcall(function()
-                        mouse1click()
                     end)
                     task.wait(0.1)
                 end
@@ -644,7 +656,7 @@ Cmds.sit = {
 }
 
 -- ======================================================
--- JUMP (JumpRequest + ChangeState)
+-- JUMP
 -- ======================================================
 Cmds.jump = {
     desc = "Включить/выключить бесконечный прыжок",
@@ -689,11 +701,7 @@ Cmds.tpall = {
                 count = count + 1
             end
         end
-        if count > 0 then
-            output("📍 Телепортировано: " .. count, Color3.fromRGB(0, 255, 0))
-        else
-            output("⚠️ Некого телепортировать", Color3.fromRGB(255, 255, 0))
-        end
+        output("📍 Телепортировано: " .. count, Color3.fromRGB(0, 255, 0))
     end
 }
 
@@ -715,9 +723,7 @@ Cmds.freeze = {
                     bv.Parent = root
                     Cheat.Runtime.FreezeBV = bv
                     local hum = char:FindFirstChild("Humanoid")
-                    if hum then
-                        hum.PlatformStand = true
-                    end
+                    if hum then hum.PlatformStand = true end
                     output("🧊 Вы заморожены", Color3.fromRGB(0, 255, 0))
                 else
                     if Cheat.Runtime.FreezeBV then
@@ -786,10 +792,7 @@ Cmds.reset = {
     run = function(args, output)
         output("🔄 Перезапуск...", Color3.fromRGB(255, 255, 0))
         task.wait(0.5)
-        if GUI then
-            pcall(function() GUI:Destroy() end)
-            GUI = nil
-        end
+        if GUI then pcall(function() GUI:Destroy() end) GUI = nil end
         ClearESP()
         JoyGui.Enabled = false
         Cheat.Flags.Fly = false
@@ -803,33 +806,24 @@ Cmds.reset = {
 }
 
 -- ======================================================
--- UNLOAD (ЧИСТАЯ ВЫГРУЗКА)
+-- UNLOAD
 -- ======================================================
 Cmds.unload = {
     desc = "Выключить скрипт и очистить память",
     run = function(args, output)
-        -- Отключаем все соединения
         for _, connection in pairs(Cheat.Runtime.Connections) do
             pcall(function() connection:Disconnect() end)
         end
         Cheat.Runtime.Connections = {}
 
-        -- Отключаем JumpConnection
         if Cheat.Runtime.JumpConnection then
             Cheat.Runtime.JumpConnection:Disconnect()
             Cheat.Runtime.JumpConnection = nil
         end
 
-        -- Удаляем GUI
-        if GUI then
-            GUI:Destroy()
-            GUI = nil
-        end
-
-        -- Очищаем ESP
+        if GUI then GUI:Destroy() end
         ClearESP()
 
-        -- Сбрасываем физику
         if Cheat.Runtime.FlyBodyVelocity then
             Cheat.Runtime.FlyBodyVelocity:Destroy()
             Cheat.Runtime.FlyBodyVelocity = nil
@@ -844,7 +838,7 @@ Cmds.unload = {
 }
 
 -- ======================================================
--- ОСНОВНЫЕ КОМАНДЫ
+-- FLY
 -- ======================================================
 Cmds.fly = {
     desc = "Включить/выключить полет",
@@ -935,7 +929,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ======================================================
--- FAKEHEAL (ЧЕСТНОЕ ПРЕДУПРЕЖДЕНИЕ)
+-- FAKEHEAL
 -- ======================================================
 Cmds.fakeheal = {
     desc = "Включить/выключить авто-хил (НЕ бессмертие!)",
@@ -953,7 +947,7 @@ Cmds.fakeheal = {
                     task.wait(0.05)
                 end
             end)
-            output("🩸 Авто-хил ВКЛЮЧЕН (клиентский, не защищает от сервера)", Color3.fromRGB(0, 255, 0))
+            output("🩸 Авто-хил ВКЛЮЧЕН (клиентский)", Color3.fromRGB(0, 255, 0))
         else
             output("🩸 Авто-хил ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
         end
@@ -1057,16 +1051,6 @@ JoyStick.BorderSizePixel = 2
 JoyStick.BorderColor3 = Color3.fromRGB(255, 255, 255)
 JoyStick.Parent = JoyFrame
 
-local JoyLabel = Instance.new("TextLabel")
-JoyLabel.Size = UDim2.new(1, 0, 0, 20)
-JoyLabel.Position = UDim2.new(0, 0, 0, 120)
-JoyLabel.BackgroundTransparency = 1
-JoyLabel.Text = "FLY"
-JoyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-JoyLabel.TextScaled = true
-JoyLabel.Font = Enum.Font.GothamBold
-JoyLabel.Parent = JoyFrame
-
 local JoyActive = false
 
 local function ResetJoystick()
@@ -1088,9 +1072,7 @@ JoyFrame.InputEnded:Connect(function(input)
 end)
 
 UserInputService.TouchEnded:Connect(function()
-    if JoyActive then
-        ResetJoystick()
-    end
+    if JoyActive then ResetJoystick() end
 end)
 
 JoyFrame.InputChanged:Connect(function(input)
@@ -1098,71 +1080,9 @@ JoyFrame.InputChanged:Connect(function(input)
         local delta = input.Position - JoyFrame.AbsolutePosition - JoyFrame.AbsoluteSize / 2
         local maxDist = 40
         local dist = delta.Magnitude
-        if dist > maxDist then
-            delta = delta.Unit * maxDist
-        end
+        if dist > maxDist then delta = delta.Unit * maxDist end
         JoyStick.Position = UDim2.new(0.5, delta.X - 20, 0.5, delta.Y - 20)
         Cheat.Runtime.FlyDirection = Vector3.new(delta.X / maxDist, 0, -delta.Y / maxDist)
-    end
-end)
-
-local FlyUpBtn = Instance.new("TextButton")
-FlyUpBtn.Size = UDim2.new(0, 50, 0, 50)
-FlyUpBtn.Position = UDim2.new(0.85, 0, 0.7, 0)
-FlyUpBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
-FlyUpBtn.BorderSizePixel = 2
-FlyUpBtn.BorderColor3 = Color3.fromRGB(100, 255, 100)
-FlyUpBtn.Text = "⬆"
-FlyUpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-FlyUpBtn.TextScaled = true
-FlyUpBtn.Font = Enum.Font.GothamBold
-FlyUpBtn.Parent = JoyGui
-
-local FlyDownBtn = Instance.new("TextButton")
-FlyDownBtn.Size = UDim2.new(0, 50, 0, 50)
-FlyDownBtn.Position = UDim2.new(0.85, 0, 0.82, 0)
-FlyDownBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-FlyDownBtn.BorderSizePixel = 2
-FlyDownBtn.BorderColor3 = Color3.fromRGB(255, 100, 100)
-FlyDownBtn.Text = "⬇"
-FlyDownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-FlyDownBtn.TextScaled = true
-FlyDownBtn.Font = Enum.Font.GothamBold
-FlyDownBtn.Parent = JoyGui
-
-local function SetupFlyButton(btn, varName)
-    btn.MouseButton1Down:Connect(function() Cheat.Runtime[varName] = true end)
-    btn.MouseButton1Up:Connect(function() Cheat.Runtime[varName] = false end)
-end
-
-SetupFlyButton(FlyUpBtn, "FlyUpActive")
-SetupFlyButton(FlyDownBtn, "FlyDownActive")
-
-RunService.RenderStepped:Connect(function()
-    if Cheat.Flags.Fly and Cheat.Runtime.FlyBodyVelocity then
-        local speed = 70
-        local vel = Vector3.new(0, 0, 0)
-        local look = Camera.CFrame.LookVector
-        local right = Camera.CFrame.RightVector
-        local up = Camera.CFrame.UpVector
-
-        if IsDesktop then
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then vel = vel + look * speed end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then vel = vel - look * speed end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then vel = vel - right * speed end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then vel = vel + right * speed end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel = vel + up * speed end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vel = vel - up * speed end
-        end
-
-        if IsMobile then
-            vel = vel + right * Cheat.Runtime.FlyDirection.X * speed
-            vel = vel + look * Cheat.Runtime.FlyDirection.Z * speed
-            if Cheat.Runtime.FlyUpActive then vel = vel + up * speed end
-            if Cheat.Runtime.FlyDownActive then vel = vel - up * speed end
-        end
-
-        Cheat.Runtime.FlyBodyVelocity.Velocity = vel
     end
 end)
 
@@ -1175,8 +1095,8 @@ JoyGui.Enabled = false
 
 StarterGui:SetCore("SendNotification", {
     Title = "⚡ MAX EDITION & DEEPSEEK",
-    Text = "Двойной RightShift - консоль | ESP Highlight",
+    Text = "Кнопка ⚡ или двойной RightShift",
     Duration = 5
 })
 
-print("✅ MAX EDITION & DEEPSEEK загружена | ESP Highlight")
+print("✅ MAX EDITION & DEEPSEEK загружена | MOBILE READY")
