@@ -79,6 +79,94 @@ local IsMobile = UserInputService.TouchEnabled
 local IsDesktop = not IsMobile
 
 -- ======================================================
+-- ДЖОЙСТИК (МОБИЛА) – объявлен раньше, чтобы не было nil
+-- ======================================================
+local JoyGui = Instance.new("ScreenGui")
+JoyGui.Name = "FlyJoystick"
+JoyGui.ResetOnSpawn = false
+JoyGui.Parent = LocalPlayer:WaitForChild("PlayerGui") or StarterGui
+JoyGui.Enabled = false
+
+local JoyFrame = Instance.new("Frame")
+JoyFrame.Size = UDim2.new(0, 120, 0, 120)
+JoyFrame.Position = UDim2.new(0.02, 0, 0.5, -60)
+JoyFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
+JoyFrame.BackgroundTransparency = 0.5
+JoyFrame.BorderSizePixel = 2
+JoyFrame.BorderColor3 = Color3.fromRGB(80, 80, 150)
+JoyFrame.Parent = JoyGui
+
+local JoyStick = Instance.new("Frame")
+JoyStick.Size = UDim2.new(0, 40, 0, 40)
+JoyStick.Position = UDim2.new(0.5, -20, 0.5, -20)
+JoyStick.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
+JoyStick.BackgroundTransparency = 0.3
+JoyStick.BorderSizePixel = 2
+JoyStick.BorderColor3 = Color3.fromRGB(255, 255, 255)
+JoyStick.Parent = JoyFrame
+
+local JoyActive = false
+
+local function ResetJoystick()
+    JoyActive = false
+    JoyStick.Position = UDim2.new(0.5, -20, 0.5, -20)
+    Cheat.Runtime.FlyDirection = Vector3.new(0, 0, 0)
+end
+
+JoyFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        JoyActive = true
+    end
+end)
+
+JoyFrame.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        ResetJoystick()
+    end
+end)
+
+UserInputService.TouchEnded:Connect(function()
+    if JoyActive then ResetJoystick() end
+end)
+
+JoyFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch and JoyActive then
+        local delta = input.Position - JoyFrame.AbsolutePosition - JoyFrame.AbsoluteSize / 2
+        local maxDist = 40
+        local dist = delta.Magnitude
+        if dist > maxDist then delta = delta.Unit * maxDist end
+        JoyStick.Position = UDim2.new(0.5, delta.X - 20, 0.5, delta.Y - 20)
+        Cheat.Runtime.FlyDirection = Vector3.new(delta.X / maxDist, 0, -delta.Y / maxDist)
+    end
+end)
+
+local UpBtn = Instance.new("TextButton")
+UpBtn.Size = UDim2.new(0, 50, 0, 50)
+UpBtn.Position = UDim2.new(0.85, 0, 0.7, 0)
+UpBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+UpBtn.Text = "⬆"
+UpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+UpBtn.TextScaled = true
+UpBtn.Font = Enum.Font.GothamBold
+UpBtn.Parent = JoyGui
+
+local DownBtn = Instance.new("TextButton")
+DownBtn.Size = UDim2.new(0, 50, 0, 50)
+DownBtn.Position = UDim2.new(0.85, 0, 0.82, 0)
+DownBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+DownBtn.Text = "⬇"
+DownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DownBtn.TextScaled = true
+DownBtn.Font = Enum.Font.GothamBold
+DownBtn.Parent = JoyGui
+
+UpBtn.MouseButton1Down:Connect(function() Cheat.Runtime.FlyUpActive = true end)
+UpBtn.MouseButton1Up:Connect(function() Cheat.Runtime.FlyUpActive = false end)
+
+DownBtn.MouseButton1Down:Connect(function() Cheat.Runtime.FlyDownActive = true end)
+DownBtn.MouseButton1Up:Connect(function() Cheat.Runtime.FlyDownActive = false end)
+
+-- ======================================================
 -- ОТКРЫТИЕ КОНСОЛИ
 -- ======================================================
 local function ToggleConsole()
@@ -377,14 +465,12 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+-- Один обработчик добавления игрока
 Players.PlayerAdded:Connect(function(pl)
     if Cheat.Flags.ESP then
         task.wait(0.5)
         AddESPForPlayer(pl)
     end
-end)
-
-Players.PlayerAdded:Connect(function(pl)
     pl.CharacterAdded:Connect(function()
         if Cheat.Flags.ESP then
             task.wait(0.5)
@@ -520,11 +606,7 @@ function CreateConsole()
                 Cheat.Runtime.HistoryIndex = #Cheat.Runtime.CommandHistory + 1
                 InputBox.Text = ""
             end
-        end
-    end)
-
-    InputBox.InputBegan:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.Tab then
+        elseif input.KeyCode == Enum.KeyCode.Tab then
             input.StopPropagation = true
             local text = InputBox.Text
             local match = nil
@@ -538,7 +620,6 @@ function CreateConsole()
                 InputBox.Text = match
                 InputBox.CursorPosition = #InputBox.Text
             end
-            return
         end
     end)
 
@@ -587,7 +668,8 @@ Cmds.help = {
         local commands = {
             "help", "fly", "speed", "noclip", "fakeheal", "goto", "esp", "saitama",
             "antiafk", "autoclick", "spin", "sit", "jump", "tpall",
-            "freeze", "time", "weather", "reset", "unload"
+            "freeze", "time", "weather", "godmode", "invisible",
+            "mm2aimbot", "mm2autoshoot", "reset", "unload"
         }
         for _, name in pairs(commands) do
             if Cmds[name] then
@@ -831,22 +913,287 @@ Cmds.weather = {
 }
 
 -- ======================================================
--- RESET
+-- SPEED
+-- ======================================================
+Cmds.speed = {
+    desc = "Установить скорость (speed [число])",
+    run = function(args, output)
+        local speed = tonumber(args[1])
+        if not speed then
+            output("⚠️ Использование: speed [число]", Color3.fromRGB(255, 255, 0))
+            return
+        end
+        Cheat.Config.SpeedValue = speed
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.WalkSpeed = speed
+            end
+        end
+        output("🏃 Скорость установлена: " .. speed, Color3.fromRGB(0, 255, 0))
+        SaveSettings()
+    end
+}
+
+-- ======================================================
+-- NOCLIP
+-- ======================================================
+Cmds.noclip = {
+    desc = "Включить/выключить прохождение сквозь стены",
+    run = function(args, output)
+        Cheat.Flags.Noclip = not Cheat.Flags.Noclip
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = not Cheat.Flags.Noclip
+                end
+            end
+        end
+        output("🚧 Noclip " .. (Cheat.Flags.Noclip and "ВКЛЮЧЕН" or "ВЫКЛЮЧЕН"), Color3.fromRGB(0, 255, 0))
+        SaveSettings()
+    end
+}
+
+-- ======================================================
+-- FAKEHEAL
+-- ======================================================
+Cmds.fakeheal = {
+    desc = "Установить здоровье на максимум",
+    run = function(args, output)
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.Health = hum.MaxHealth
+                output("❤️ Здоровье восстановлено", Color3.fromRGB(0, 255, 0))
+            end
+        end
+    end
+}
+
+-- ======================================================
+-- GOTO
+-- ======================================================
+Cmds.goto = {
+    desc = "Телепортироваться к игроку или координатам (goto [имя] или goto [x y z])",
+    run = function(args, output)
+        if #args == 0 then
+            output("⚠️ Использование: goto [имя игрока] или goto [x y z]", Color3.fromRGB(255, 255, 0))
+            return
+        end
+
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then
+            output("⚠️ Вы не в игре", Color3.fromRGB(255, 255, 0))
+            return
+        end
+
+        -- Если первый аргумент число, считаем координаты
+        if tonumber(args[1]) then
+            if #args < 3 then
+                output("⚠️ Нужно три координаты: x y z", Color3.fromRGB(255, 255, 0))
+                return
+            end
+            local x, y, z = tonumber(args[1]), tonumber(args[2]), tonumber(args[3])
+            if x and y and z then
+                root.CFrame = CFrame.new(Vector3.new(x, y, z))
+                output("📍 Телепорт на координаты", Color3.fromRGB(0, 255, 0))
+            else
+                output("⚠️ Неверные координаты", Color3.fromRGB(255, 255, 0))
+            end
+        else
+            local targetName = table.concat(args, " ")
+            local target = Players:FindFirstChild(targetName)
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                root.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                output("📍 Телепорт к " .. targetName, Color3.fromRGB(0, 255, 0))
+            else
+                output("⚠️ Игрок не найден", Color3.fromRGB(255, 255, 0))
+            end
+        end
+    end
+}
+
+-- ======================================================
+-- ESP
+-- ======================================================
+Cmds.esp = {
+    desc = "Включить/выключить ESP",
+    run = function(args, output)
+        Cheat.Flags.ESP = not Cheat.Flags.ESP
+        if Cheat.Flags.ESP then
+            CreateESP()
+            output("👁️ ESP ВКЛЮЧЕН", Color3.fromRGB(0, 255, 0))
+        else
+            ClearESP()
+            output("👁️ ESP ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
+        end
+        SaveSettings()
+    end
+}
+
+-- ======================================================
+-- SAITAMA
+-- ======================================================
+Cmds.saitama = {
+    desc = "Включить/выключить режим Сайтамы",
+    run = function(args, output)
+        Cheat.Flags.Saitama = not Cheat.Flags.Saitama
+        local char = LocalPlayer.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                if Cheat.Flags.Saitama then
+                    AddSaitamaEffect(root)
+                    output("👊 Режим Сайтамы ВКЛЮЧЕН", Color3.fromRGB(0, 255, 0))
+                else
+                    -- Удаляем эффект, если нужно (опционально)
+                    for _, child in pairs(root:GetChildren()) do
+                        if child.Name == "SaitamaBeam" or child.Name == "SaitamaGlow0" or child.Name == "SaitamaGlow1" then
+                            child:Destroy()
+                        end
+                    end
+                    output("👊 Режим Сайтамы ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
+                end
+            end
+        end
+        SaveSettings()
+    end
+}
+
+-- ======================================================
+-- GODMODE
+-- ======================================================
+Cmds.godmode = {
+    desc = "Включить/выключить бессмертие",
+    run = function(args, output)
+        Cheat.Flags.GodMode = not Cheat.Flags.GodMode
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                if Cheat.Flags.GodMode then
+                    task.spawn(function()
+                        while Cheat.Flags.GodMode do
+                            if hum and hum.Parent then
+                                hum.Health = hum.MaxHealth
+                            end
+                            task.wait(0.5)
+                        end
+                    end)
+                    output("🛡️ Бессмертие ВКЛЮЧЕНО", Color3.fromRGB(0, 255, 0))
+                else
+                    output("🛡️ Бессмертие ВЫКЛЮЧЕНО", Color3.fromRGB(255, 0, 0))
+                end
+            end
+        end
+    end
+}
+
+-- ======================================================
+-- INVISIBLE
+-- ======================================================
+Cmds.invisible = {
+    desc = "Включить/выключить невидимость",
+    run = function(args, output)
+        Cheat.Flags.Invisible = not Cheat.Flags.Invisible
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if Cheat.Flags.Invisible then
+                        part.Transparency = 1
+                    else
+                        part.Transparency = 0
+                    end
+                end
+            end
+            output("👻 Невидимость " .. (Cheat.Flags.Invisible and "ВКЛЮЧЕНА" or "ВЫКЛЮЧЕНА"), Color3.fromRGB(0, 255, 0))
+        end
+    end
+}
+
+-- ======================================================
+-- MM2 AIMBOT / AUTOSHOOT (заглушки)
+-- ======================================================
+Cmds.mm2aimbot = {
+    desc = "Aimbot для MM2 (заглушка)",
+    run = function(args, output)
+        Cheat.Flags.MM2Aimbot = not Cheat.Flags.MM2Aimbot
+        output("🎯 MM2 Aimbot " .. (Cheat.Flags.MM2Aimbot and "ВКЛЮЧЕН" or "ВЫКЛЮЧЕН") .. " (не реализовано)", Color3.fromRGB(255, 255, 0))
+    end
+}
+
+Cmds.mm2autoshoot = {
+    desc = "AutoShoot для MM2 (заглушка)",
+    run = function(args, output)
+        Cheat.Flags.MM2AutoShoot = not Cheat.Flags.MM2AutoShoot
+        output("🔫 MM2 AutoShoot " .. (Cheat.Flags.MM2AutoShoot and "ВКЛЮЧЕН" or "ВЫКЛЮЧЕН") .. " (не реализовано)", Color3.fromRGB(255, 255, 0))
+    end
+}
+
+-- ======================================================
+-- RESET (перезапуск скрипта)
 -- ======================================================
 Cmds.reset = {
     desc = "Перезапустить скрипт",
     run = function(args, output)
         output("🔄 Перезапуск...", Color3.fromRGB(255, 255, 0))
         task.wait(0.5)
-        if GUI then pcall(function() GUI:Destroy() end) GUI = nil end
-        ClearESP()
-        JoyGui.Enabled = false
+        -- Сбрасываем все флаги
         Cheat.Flags.Fly = false
         Cheat.Flags.Noclip = false
         Cheat.Flags.ESP = false
         Cheat.Flags.Saitama = false
-        CreateConsole()
-        if GUI then GUI.Enabled = false end
+        Cheat.Flags.AntiAFK = false
+        Cheat.Flags.AutoClick = false
+        Cheat.Flags.Spin = false
+        Cheat.Flags.Sit = false
+        Cheat.Flags.Freeze = false
+        Cheat.Flags.GodMode = false
+        Cheat.Flags.Invisible = false
+        Cheat.Flags.InfiniteJump = false
+
+        -- Очистка эффектов
+        ClearESP()
+        if Cheat.Runtime.FlyBodyVelocity then
+            Cheat.Runtime.FlyBodyVelocity:Destroy()
+            Cheat.Runtime.FlyBodyVelocity = nil
+        end
+        if Cheat.Runtime.FreezeBV then
+            Cheat.Runtime.FreezeBV:Destroy()
+            Cheat.Runtime.FreezeBV = nil
+        end
+        if Cheat.Runtime.JumpConnection then
+            Cheat.Runtime.JumpConnection:Disconnect()
+            Cheat.Runtime.JumpConnection = nil
+        end
+
+        -- Вернуть персонажа в нормальное состояние
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+                hum.Sit = false
+                hum.WalkSpeed = 16
+            end
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                    part.Transparency = 0
+                end
+            end
+        end
+
+        -- Закрыть мобильный джойстик, если открыт
+        if IsMobile then
+            JoyGui.Enabled = false
+        end
+
         output("✅ Скрипт перезапущен", Color3.fromRGB(0, 255, 0))
     end
 }
@@ -857,6 +1204,7 @@ Cmds.reset = {
 Cmds.unload = {
     desc = "Выключить скрипт и очистить память",
     run = function(args, output)
+        -- Отключаем все соединения
         for _, connection in pairs(Cheat.Runtime.Connections) do
             pcall(function() connection:Disconnect() end)
         end
@@ -867,9 +1215,8 @@ Cmds.unload = {
             Cheat.Runtime.JumpConnection = nil
         end
 
-        if GUI then GUI:Destroy() end
+        -- Очистка
         ClearESP()
-
         if Cheat.Runtime.FlyBodyVelocity then
             Cheat.Runtime.FlyBodyVelocity:Destroy()
             Cheat.Runtime.FlyBodyVelocity = nil
@@ -878,6 +1225,11 @@ Cmds.unload = {
             Cheat.Runtime.FreezeBV:Destroy()
             Cheat.Runtime.FreezeBV = nil
         end
+
+        -- Уничтожаем GUI
+        if GUI then GUI:Destroy() GUI = nil end
+        if MobileButton then MobileButton:Destroy() end
+        if JoyGui then JoyGui:Destroy() end
 
         output("🛑 Скрипт полностью выгружен из памяти", Color3.fromRGB(255, 0, 0))
     end
@@ -972,94 +1324,6 @@ RunService.RenderStepped:Connect(function()
 
     Cheat.Runtime.FlyBodyVelocity.Velocity = vel
 end)
-
--- ======================================================
--- ДЖОЙСТИК (МОБИЛА)
--- ======================================================
-local JoyGui = Instance.new("ScreenGui")
-JoyGui.Name = "FlyJoystick"
-JoyGui.ResetOnSpawn = false
-JoyGui.Parent = LocalPlayer:WaitForChild("PlayerGui") or StarterGui
-JoyGui.Enabled = false
-
-local JoyFrame = Instance.new("Frame")
-JoyFrame.Size = UDim2.new(0, 120, 0, 120)
-JoyFrame.Position = UDim2.new(0.02, 0, 0.5, -60)
-JoyFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
-JoyFrame.BackgroundTransparency = 0.5
-JoyFrame.BorderSizePixel = 2
-JoyFrame.BorderColor3 = Color3.fromRGB(80, 80, 150)
-JoyFrame.Parent = JoyGui
-
-local JoyStick = Instance.new("Frame")
-JoyStick.Size = UDim2.new(0, 40, 0, 40)
-JoyStick.Position = UDim2.new(0.5, -20, 0.5, -20)
-JoyStick.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
-JoyStick.BackgroundTransparency = 0.3
-JoyStick.BorderSizePixel = 2
-JoyStick.BorderColor3 = Color3.fromRGB(255, 255, 255)
-JoyStick.Parent = JoyFrame
-
-local JoyActive = false
-
-local function ResetJoystick()
-    JoyActive = false
-    JoyStick.Position = UDim2.new(0.5, -20, 0.5, -20)
-    Cheat.Runtime.FlyDirection = Vector3.new(0, 0, 0)
-end
-
-JoyFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        JoyActive = true
-    end
-end)
-
-JoyFrame.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        ResetJoystick()
-    end
-end)
-
-UserInputService.TouchEnded:Connect(function()
-    if JoyActive then ResetJoystick() end
-end)
-
-JoyFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch and JoyActive then
-        local delta = input.Position - JoyFrame.AbsolutePosition - JoyFrame.AbsoluteSize / 2
-        local maxDist = 40
-        local dist = delta.Magnitude
-        if dist > maxDist then delta = delta.Unit * maxDist end
-        JoyStick.Position = UDim2.new(0.5, delta.X - 20, 0.5, delta.Y - 20)
-        Cheat.Runtime.FlyDirection = Vector3.new(delta.X / maxDist, 0, -delta.Y / maxDist)
-    end
-end)
-
-local UpBtn = Instance.new("TextButton")
-UpBtn.Size = UDim2.new(0, 50, 0, 50)
-UpBtn.Position = UDim2.new(0.85, 0, 0.7, 0)
-UpBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
-UpBtn.Text = "⬆"
-UpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-UpBtn.TextScaled = true
-UpBtn.Font = Enum.Font.GothamBold
-UpBtn.Parent = JoyGui
-
-local DownBtn = Instance.new("TextButton")
-DownBtn.Size = UDim2.new(0, 50, 0, 50)
-DownBtn.Position = UDim2.new(0.85, 0, 0.82, 0)
-DownBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-DownBtn.Text = "⬇"
-DownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DownBtn.TextScaled = true
-DownBtn.Font = Enum.Font.GothamBold
-DownBtn.Parent = JoyGui
-
-UpBtn.MouseButton1Down:Connect(function() Cheat.Runtime.FlyUpActive = true end)
-UpBtn.MouseButton1Up:Connect(function() Cheat.Runtime.FlyUpActive = false end)
-
-DownBtn.MouseButton1Down:Connect(function() Cheat.Runtime.FlyDownActive = true end)
-DownBtn.MouseButton1Up:Connect(function() Cheat.Runtime.FlyDownActive = false end)
 
 -- ======================================================
 -- ЗАПУСК
