@@ -59,7 +59,7 @@ local Cheat = {
         FlyUpActive = false,
         FlyDownActive = false,
         JumpConnection = nil,
-        NoclipConnection = nil, -- новое: соединение для NoClip
+        NoclipConnection = nil, -- соединение для NoClip
     }
 }
 
@@ -464,7 +464,7 @@ RunService.RenderStepped:Connect(function()
     if Cheat.Flags.ESP then
         UpdateESP()
     end
-    -- NoClip теперь обрабатывается отдельным циклом
+    -- NoClip обрабатывается отдельным циклом
 end)
 
 -- Один обработчик добавления игрока
@@ -682,7 +682,7 @@ Cmds.help = {
             if Cmds[name] then
                 output(name .. " - " .. Cmds[name].desc, Color3.fromRGB(200, 200, 255))
             elseif name == "goto/tp" then
-                output("goto/tp - Телепортироваться к игроку (часть имени или координаты)", Color3.fromRGB(200, 200, 255))
+                output("goto/tp - Телепорт к игроку (точное имя, часть или координаты)", Color3.fromRGB(200, 200, 255))
             end
         end
         output("===== КОНЕЦ СПИСКА =====", Color3.fromRGB(255, 215, 0))
@@ -1008,28 +1008,54 @@ Cmds.fakeheal = {
 }
 
 -- ======================================================
--- GOTO / TP (с автоподбором имени)
+-- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ПОИСКА ИГРОКОВ
 -- ======================================================
-local function FindPlayerByPartialName(partialName)
-    partialName = partialName:lower()
+local function FindPlayersByExactName(name)
     local matches = {}
+    local lowerName = name:lower()
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Name:lower():find(partialName, 1, true) then
-            table.insert(matches, player)
+        if player ~= LocalPlayer then
+            if player.Name:lower() == lowerName or (player.DisplayName and player.DisplayName:lower() == lowerName) then
+                table.insert(matches, player)
+            end
         end
     end
-    if #matches == 1 then
-        return matches[1]
-    elseif #matches > 1 then
-        -- Если несколько, берём первого, но можно вывести предупреждение
-        return matches[1]
-    else
-        return nil
-    end
+    return matches
 end
 
+local function FindPlayersByPrefix(prefix)
+    local matches = {}
+    local lowerPrefix = prefix:lower()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if player.Name:lower():sub(1, #lowerPrefix) == lowerPrefix or
+               (player.DisplayName and player.DisplayName:lower():sub(1, #lowerPrefix) == lowerPrefix) then
+                table.insert(matches, player)
+            end
+        end
+    end
+    return matches
+end
+
+local function FindPlayersBySubstring(substr)
+    local matches = {}
+    local lowerSubstr = substr:lower()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if player.Name:lower():find(lowerSubstr, 1, true) or
+               (player.DisplayName and player.DisplayName:lower():find(lowerSubstr, 1, true)) then
+                table.insert(matches, player)
+            end
+        end
+    end
+    return matches
+end
+
+-- ======================================================
+-- GOTO / TP (улучшенный поиск)
+-- ======================================================
 Cmds.goto = {
-    desc = "Телепортироваться к игроку (часть имени или координаты). Алиас: tp",
+    desc = "Телепортироваться к игроку (точное имя, часть имени или координаты). Алиас: tp",
     run = function(args, output)
         if #args == 0 then
             output("⚠️ Использование: goto [имя или часть] или goto [x y z]", Color3.fromRGB(255, 255, 0))
@@ -1043,7 +1069,7 @@ Cmds.goto = {
             return
         end
 
-        -- Если первый аргумент число, считаем координаты
+        -- Если первый аргумент число – телепорт по координатам
         if tonumber(args[1]) then
             if #args < 3 then
                 output("⚠️ Нужно три координаты: x y z", Color3.fromRGB(255, 255, 0))
@@ -1056,22 +1082,75 @@ Cmds.goto = {
             else
                 output("⚠️ Неверные координаты", Color3.fromRGB(255, 255, 0))
             end
-        else
-            -- Поиск по части имени
-            local partialName = table.concat(args, " ")
-            local target = FindPlayerByPartialName(partialName)
-            if target then
-                local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-                if targetRoot then
-                    root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
-                    output("📍 Телепорт к " .. target.Name, Color3.fromRGB(0, 255, 0))
-                else
-                    output("⚠️ У игрока нет персонажа", Color3.fromRGB(255, 255, 0))
-                end
-            else
-                output("⚠️ Игрок с именем, содержащим '" .. partialName .. "', не найден", Color3.fromRGB(255, 255, 0))
-            end
+            return
         end
+
+        -- Поиск игрока
+        local partialName = table.concat(args, " ")
+        local candidates = {}
+
+        -- 1. Точное совпадение
+        candidates = FindPlayersByExactName(partialName)
+        if #candidates == 1 then
+            local target = candidates[1]
+            local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            if targetRoot then
+                root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
+                output("📍 Телепорт к " .. target.Name, Color3.fromRGB(0, 255, 0))
+            else
+                output("⚠️ У игрока нет персонажа", Color3.fromRGB(255, 255, 0))
+            end
+            return
+        elseif #candidates > 1 then
+            output("⚠️ Найдено несколько точных совпадений. Уточните имя:", Color3.fromRGB(255, 255, 0))
+            for _, p in pairs(candidates) do
+                output("   - " .. p.Name .. (p.DisplayName ~= p.Name and " (" .. p.DisplayName .. ")" or ""), Color3.fromRGB(255, 255, 0))
+            end
+            return
+        end
+
+        -- 2. Начинается с введённого текста
+        candidates = FindPlayersByPrefix(partialName)
+        if #candidates == 1 then
+            local target = candidates[1]
+            local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            if targetRoot then
+                root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
+                output("📍 Телепорт к " .. target.Name, Color3.fromRGB(0, 255, 0))
+            else
+                output("⚠️ У игрока нет персонажа", Color3.fromRGB(255, 255, 0))
+            end
+            return
+        elseif #candidates > 1 then
+            output("⚠️ Найдено несколько игроков, начинающихся с '" .. partialName .. "'. Уточните имя:", Color3.fromRGB(255, 255, 0))
+            for _, p in pairs(candidates) do
+                output("   - " .. p.Name .. (p.DisplayName ~= p.Name and " (" .. p.DisplayName .. ")" or ""), Color3.fromRGB(255, 255, 0))
+            end
+            return
+        end
+
+        -- 3. Содержит введённый текст
+        candidates = FindPlayersBySubstring(partialName)
+        if #candidates == 1 then
+            local target = candidates[1]
+            local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            if targetRoot then
+                root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
+                output("📍 Телепорт к " .. target.Name, Color3.fromRGB(0, 255, 0))
+            else
+                output("⚠️ У игрока нет персонажа", Color3.fromRGB(255, 255, 0))
+            end
+            return
+        elseif #candidates > 1 then
+            output("⚠️ Найдено несколько игроков, содержащих '" .. partialName .. "'. Уточните имя:", Color3.fromRGB(255, 255, 0))
+            for _, p in pairs(candidates) do
+                output("   - " .. p.Name .. (p.DisplayName ~= p.Name and " (" .. p.DisplayName .. ")" or ""), Color3.fromRGB(255, 255, 0))
+            end
+            return
+        end
+
+        -- Если ничего не найдено
+        output("⚠️ Игрок с именем, содержащим '" .. partialName .. "', не найден", Color3.fromRGB(255, 255, 0))
     end
 }
 
