@@ -59,6 +59,7 @@ local Cheat = {
         FlyUpActive = false,
         FlyDownActive = false,
         JumpConnection = nil,
+        NoclipConnection = nil, -- новое: соединение для NoClip
     }
 }
 
@@ -463,6 +464,7 @@ RunService.RenderStepped:Connect(function()
     if Cheat.Flags.ESP then
         UpdateESP()
     end
+    -- NoClip теперь обрабатывается отдельным циклом
 end)
 
 -- Один обработчик добавления игрока
@@ -651,6 +653,11 @@ function ExecuteCommand(cmd, output)
     table.remove(parts, 1)
     local args = parts
 
+    -- Алиасы для команд
+    if name == "tp" then
+        name = "goto"
+    end
+
     if Cmds[name] then
         Cmds[name].run(args, output)
     else
@@ -666,7 +673,7 @@ Cmds.help = {
     run = function(args, output)
         output("===== ДОСТУПНЫЕ КОМАНДЫ =====", Color3.fromRGB(255, 215, 0))
         local commands = {
-            "help", "fly", "speed", "noclip", "fakeheal", "goto", "esp", "saitama",
+            "help", "fly", "speed", "noclip", "fakeheal", "goto/tp", "esp", "saitama",
             "antiafk", "autoclick", "spin", "sit", "jump", "tpall",
             "freeze", "time", "weather", "godmode", "invisible",
             "mm2aimbot", "mm2autoshoot", "reset", "unload"
@@ -674,6 +681,8 @@ Cmds.help = {
         for _, name in pairs(commands) do
             if Cmds[name] then
                 output(name .. " - " .. Cmds[name].desc, Color3.fromRGB(200, 200, 255))
+            elseif name == "goto/tp" then
+                output("goto/tp - Телепортироваться к игроку (часть имени или координаты)", Color3.fromRGB(200, 200, 255))
             end
         end
         output("===== КОНЕЦ СПИСКА =====", Color3.fromRGB(255, 215, 0))
@@ -937,21 +946,46 @@ Cmds.speed = {
 }
 
 -- ======================================================
--- NOCLIP
+-- NOCLIP (исправлено: стабильное прохождение сквозь стены)
 -- ======================================================
 Cmds.noclip = {
     desc = "Включить/выключить прохождение сквозь стены",
     run = function(args, output)
         Cheat.Flags.Noclip = not Cheat.Flags.Noclip
-        local char = LocalPlayer.Character
-        if char then
-            for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = not Cheat.Flags.Noclip
+
+        if Cheat.Flags.Noclip then
+            -- Запускаем цикл, который будет отключать коллизии каждый кадр
+            if not Cheat.Runtime.NoclipConnection then
+                Cheat.Runtime.NoclipConnection = RunService.RenderStepped:Connect(function()
+                    if not Cheat.Flags.Noclip then return end
+                    local char = LocalPlayer.Character
+                    if char then
+                        for _, part in pairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+            end
+            output("🚧 Noclip ВКЛЮЧЕН", Color3.fromRGB(0, 255, 0))
+        else
+            -- Отключаем цикл и возвращаем коллизии
+            if Cheat.Runtime.NoclipConnection then
+                Cheat.Runtime.NoclipConnection:Disconnect()
+                Cheat.Runtime.NoclipConnection = nil
+            end
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                    end
                 end
             end
+            output("🚧 Noclip ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
         end
-        output("🚧 Noclip " .. (Cheat.Flags.Noclip and "ВКЛЮЧЕН" or "ВЫКЛЮЧЕН"), Color3.fromRGB(0, 255, 0))
+
         SaveSettings()
     end
 }
@@ -974,13 +1008,31 @@ Cmds.fakeheal = {
 }
 
 -- ======================================================
--- GOTO
+-- GOTO / TP (с автоподбором имени)
 -- ======================================================
+local function FindPlayerByPartialName(partialName)
+    partialName = partialName:lower()
+    local matches = {}
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Name:lower():find(partialName, 1, true) then
+            table.insert(matches, player)
+        end
+    end
+    if #matches == 1 then
+        return matches[1]
+    elseif #matches > 1 then
+        -- Если несколько, берём первого, но можно вывести предупреждение
+        return matches[1]
+    else
+        return nil
+    end
+end
+
 Cmds.goto = {
-    desc = "Телепортироваться к игроку или координатам (goto [имя] или goto [x y z])",
+    desc = "Телепортироваться к игроку (часть имени или координаты). Алиас: tp",
     run = function(args, output)
         if #args == 0 then
-            output("⚠️ Использование: goto [имя игрока] или goto [x y z]", Color3.fromRGB(255, 255, 0))
+            output("⚠️ Использование: goto [имя или часть] или goto [x y z]", Color3.fromRGB(255, 255, 0))
             return
         end
 
@@ -1005,13 +1057,19 @@ Cmds.goto = {
                 output("⚠️ Неверные координаты", Color3.fromRGB(255, 255, 0))
             end
         else
-            local targetName = table.concat(args, " ")
-            local target = Players:FindFirstChild(targetName)
-            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                root.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
-                output("📍 Телепорт к " .. targetName, Color3.fromRGB(0, 255, 0))
+            -- Поиск по части имени
+            local partialName = table.concat(args, " ")
+            local target = FindPlayerByPartialName(partialName)
+            if target then
+                local targetRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
+                    output("📍 Телепорт к " .. target.Name, Color3.fromRGB(0, 255, 0))
+                else
+                    output("⚠️ У игрока нет персонажа", Color3.fromRGB(255, 255, 0))
+                end
             else
-                output("⚠️ Игрок не найден", Color3.fromRGB(255, 255, 0))
+                output("⚠️ Игрок с именем, содержащим '" .. partialName .. "', не найден", Color3.fromRGB(255, 255, 0))
             end
         end
     end
@@ -1050,7 +1108,6 @@ Cmds.saitama = {
                     AddSaitamaEffect(root)
                     output("👊 Режим Сайтамы ВКЛЮЧЕН", Color3.fromRGB(0, 255, 0))
                 else
-                    -- Удаляем эффект, если нужно (опционально)
                     for _, child in pairs(root:GetChildren()) do
                         if child.Name == "SaitamaBeam" or child.Name == "SaitamaGlow0" or child.Name == "SaitamaGlow1" then
                             child:Destroy()
@@ -1143,7 +1200,7 @@ Cmds.reset = {
     run = function(args, output)
         output("🔄 Перезапуск...", Color3.fromRGB(255, 255, 0))
         task.wait(0.5)
-        -- Сбрасываем все флаги
+        -- Сброс всех флагов
         Cheat.Flags.Fly = false
         Cheat.Flags.Noclip = false
         Cheat.Flags.ESP = false
@@ -1171,6 +1228,10 @@ Cmds.reset = {
             Cheat.Runtime.JumpConnection:Disconnect()
             Cheat.Runtime.JumpConnection = nil
         end
+        if Cheat.Runtime.NoclipConnection then
+            Cheat.Runtime.NoclipConnection:Disconnect()
+            Cheat.Runtime.NoclipConnection = nil
+        end
 
         -- Вернуть персонажа в нормальное состояние
         local char = LocalPlayer.Character
@@ -1189,7 +1250,7 @@ Cmds.reset = {
             end
         end
 
-        -- Закрыть мобильный джойстик, если открыт
+        -- Закрыть мобильный джойстик
         if IsMobile then
             JoyGui.Enabled = false
         end
@@ -1213,6 +1274,10 @@ Cmds.unload = {
         if Cheat.Runtime.JumpConnection then
             Cheat.Runtime.JumpConnection:Disconnect()
             Cheat.Runtime.JumpConnection = nil
+        end
+        if Cheat.Runtime.NoclipConnection then
+            Cheat.Runtime.NoclipConnection:Disconnect()
+            Cheat.Runtime.NoclipConnection = nil
         end
 
         -- Очистка
