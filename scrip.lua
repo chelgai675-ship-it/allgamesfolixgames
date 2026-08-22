@@ -1,6 +1,5 @@
 -- ======================================================
--- MAX EDITION & DEEPSEEK ALL GAMES
--- ESP ВОЗВРАЩЁН В КОНСОЛЬ
+-- MAX EDITION & DEEPSEEK ALL GAMES — FINAL FIX
 -- ======================================================
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -16,7 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
 -- ======================================================
--- CHEAT
+-- CHEAT CONFIG
 -- ======================================================
 local Cheat = {
     Config = {
@@ -24,7 +23,6 @@ local Cheat = {
         SpinSpeed = 10,
         RainbowOffset = 0,
     },
-
     Flags = {
         Fly = false,
         Noclip = false,
@@ -41,12 +39,12 @@ local Cheat = {
         MM2Aimbot = false,
         MM2AutoShoot = false,
     },
-
     Runtime = {
         Connections = {},
         ESPTexts = {},
         ESPSmoothed = {},
         ESPHighlights = {},
+        ESPCharacterConnections = {}, -- для респавна игроков
         FlyBodyVelocity = nil,
         FreezeBV = nil,
         ConsoleVisible = false,
@@ -59,12 +57,12 @@ local Cheat = {
         FlyUpActive = false,
         FlyDownActive = false,
         JumpConnection = nil,
-        NoclipConnection = nil, -- соединение для NoClip
+        NoclipConnection = nil,
     }
 }
 
 -- ======================================================
--- ПЕРЕМЕННЫЕ КОНСОЛИ
+-- CONSOLE VARIABLES
 -- ======================================================
 local LastRightShiftPress = 0
 local RightShiftPressCount = 0
@@ -74,13 +72,13 @@ local OutputScrolling = nil
 local Cmds = {}
 
 -- ======================================================
--- ТИП УСТРОЙСТВА
+-- DEVICE TYPE
 -- ======================================================
 local IsMobile = UserInputService.TouchEnabled
 local IsDesktop = not IsMobile
 
 -- ======================================================
--- ДЖОЙСТИК (МОБИЛА) – объявлен раньше, чтобы не было nil
+-- MOBILE JOYSTICK (создаём заранее)
 -- ======================================================
 local JoyGui = Instance.new("ScreenGui")
 JoyGui.Name = "FlyJoystick"
@@ -168,7 +166,7 @@ DownBtn.MouseButton1Down:Connect(function() Cheat.Runtime.FlyDownActive = true e
 DownBtn.MouseButton1Up:Connect(function() Cheat.Runtime.FlyDownActive = false end)
 
 -- ======================================================
--- ОТКРЫТИЕ КОНСОЛИ
+-- CONSOLE TOGGLE
 -- ======================================================
 local function ToggleConsole()
     Cheat.Runtime.ConsoleVisible = not Cheat.Runtime.ConsoleVisible
@@ -220,7 +218,7 @@ OpenBtn.Parent = MobileButton
 OpenBtn.MouseButton1Click:Connect(ToggleConsole)
 
 -- ======================================================
--- СОХРАНЕНИЕ НАСТРОЕК
+-- SETTINGS SAVE / LOAD
 -- ======================================================
 local SettingsFile = "max_settings.json"
 
@@ -263,7 +261,7 @@ end
 LoadSettings()
 
 -- ======================================================
--- РАДУГА
+-- RAINBOW COLOR
 -- ======================================================
 local function RainbowColor(offset)
     local r = math.sin(offset + 0) * 0.5 + 0.5
@@ -273,7 +271,7 @@ local function RainbowColor(offset)
 end
 
 -- ======================================================
--- САЙТАМА
+-- SAITAMA EFFECT
 -- ======================================================
 local function AddSaitamaEffect(part)
     if not part or not part:IsA("BasePart") then return end
@@ -308,33 +306,43 @@ local function AddSaitamaEffect(part)
 end
 
 -- ======================================================
--- ESP (УНИВЕРСАЛЬНЫЙ TEAMCHECK)
+-- ESP TEAMCOLOR (улучшенный)
 -- ======================================================
 local function GetTeamColor(pl)
     local char = pl.Character
     local color = Color3.fromRGB(255, 255, 255)
 
-    if pl.Team and pl.TeamColor then
-        if LocalPlayer.Team and LocalPlayer.TeamColor then
-            if pl.Team ~= LocalPlayer.Team then
-                color = Color3.fromRGB(255, 50, 50)
-            else
-                color = Color3.fromRGB(50, 255, 100)
-            end
+    -- Проверка оружия в персонаже и рюкзаке (MM2)
+    if char then
+        local function hasTool(toolName)
+            if char:FindFirstChild(toolName) then return true end
+            local backpack = pl:FindFirstChild("Backpack")
+            if backpack and backpack:FindFirstChild(toolName) then return true end
+            return false
+        end
+
+        if hasTool("Knife") or hasTool("MurdererKnife") then
+            color = Color3.fromRGB(255, 50, 50) -- убийца
+        elseif hasTool("Gun") or hasTool("Pistol") or hasTool("Revolver") then
+            color = Color3.fromRGB(50, 120, 255) -- шериф
         end
     end
 
-    if char then
-        if char:FindFirstChild("Knife") or char:FindFirstChild("MurdererKnife") then
+    -- Командная проверка (если есть команды)
+    if pl.Team and pl.TeamColor and LocalPlayer.Team and LocalPlayer.TeamColor then
+        if pl.Team ~= LocalPlayer.Team then
             color = Color3.fromRGB(255, 50, 50)
-        elseif char:FindFirstChild("Gun") or char:FindFirstChild("Pistol") or char:FindFirstChild("Revolver") then
-            color = Color3.fromRGB(50, 120, 255)
+        else
+            color = Color3.fromRGB(50, 255, 100)
         end
     end
 
     return color
 end
 
+-- ======================================================
+-- ESP SYSTEM
+-- ======================================================
 function ClearESP()
     for _, obj in pairs(Cheat.Runtime.ESPTexts) do
         pcall(function() obj:Remove() end)
@@ -346,6 +354,12 @@ function ClearESP()
         pcall(function() h:Destroy() end)
     end
     Cheat.Runtime.ESPHighlights = {}
+
+    -- Отключаем все соединения CharacterAdded
+    for pl, conn in pairs(Cheat.Runtime.ESPCharacterConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Cheat.Runtime.ESPCharacterConnections = {}
 end
 
 function AddESPForPlayer(pl)
@@ -384,6 +398,16 @@ function AddESPForPlayer(pl)
         root = root.Position,
         head = head.Position
     }
+
+    -- Подключаем CharacterAdded если ещё не подключено
+    if not Cheat.Runtime.ESPCharacterConnections[pl] then
+        Cheat.Runtime.ESPCharacterConnections[pl] = pl.CharacterAdded:Connect(function()
+            if Cheat.Flags.ESP then
+                task.wait(0.5)
+                AddESPForPlayer(pl)
+            end
+        end)
+    end
 end
 
 function CreateESP()
@@ -422,11 +446,7 @@ function UpdateESP()
                     local headPos, headVisible = Camera:WorldToScreenPoint(sm.head)
 
                     local color = GetTeamColor(pl)
-
-                    if txt.Color ~= color then
-                        txt.Color = color
-                    end
-
+                    if txt.Color ~= color then txt.Color = color end
                     if highlight then
                         highlight.FillColor = color
                         highlight.OutlineColor = color
@@ -436,8 +456,8 @@ function UpdateESP()
                         local camDir = Camera.CFrame.LookVector
                         local toTarget = (root.Position - Camera.CFrame.Position).Unit
                         if camDir:Dot(toTarget) > 0 then
-                            local dist = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and
-                                (LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude) or 0
+                            local localRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                            local dist = localRoot and (localRoot.Position - root.Position).Magnitude or 0
 
                             local posY = math.min(headPos.Y, rootPos.Y) - 20
                             local posX = (headPos.X + rootPos.X) / 2
@@ -464,36 +484,34 @@ RunService.RenderStepped:Connect(function()
     if Cheat.Flags.ESP then
         UpdateESP()
     end
-    -- NoClip обрабатывается отдельным циклом
 end)
 
--- Один обработчик добавления игрока
+-- Отслеживание новых игроков
 Players.PlayerAdded:Connect(function(pl)
     if Cheat.Flags.ESP then
         task.wait(0.5)
         AddESPForPlayer(pl)
     end
-    pl.CharacterAdded:Connect(function()
-        if Cheat.Flags.ESP then
-            task.wait(0.5)
-            AddESPForPlayer(pl)
-        end
-    end)
 end)
 
+-- Удаление ESP при выходе игрока
 Players.PlayerRemoving:Connect(function(pl)
     if Cheat.Runtime.ESPTexts[pl] then
         pcall(function() Cheat.Runtime.ESPTexts[pl]:Remove() end)
         Cheat.Runtime.ESPTexts[pl] = nil
     end
     Cheat.Runtime.ESPSmoothed[pl] = nil
-
     if Cheat.Runtime.ESPHighlights[pl] then
         pcall(function() Cheat.Runtime.ESPHighlights[pl]:Destroy() end)
         Cheat.Runtime.ESPHighlights[pl] = nil
     end
+    if Cheat.Runtime.ESPCharacterConnections[pl] then
+        pcall(function() Cheat.Runtime.ESPCharacterConnections[pl]:Disconnect() end)
+        Cheat.Runtime.ESPCharacterConnections[pl] = nil
+    end
 end)
 
+-- При смерти локального игрока НЕ очищаем ESP (оно останется на других)
 LocalPlayer.CharacterRemoving:Connect(function()
     if Cheat.Flags.Fly then
         Cheat.Flags.Fly = false
@@ -506,11 +524,10 @@ LocalPlayer.CharacterRemoving:Connect(function()
         Cheat.Runtime.FreezeBV:Destroy()
         Cheat.Runtime.FreezeBV = nil
     end
-    ClearESP()
 end)
 
 -- ======================================================
--- КОНСОЛЬ
+-- CONSOLE
 -- ======================================================
 function CreateConsole()
     if GUI then pcall(function() GUI:Destroy() end) GUI = nil end
@@ -653,10 +670,8 @@ function ExecuteCommand(cmd, output)
     table.remove(parts, 1)
     local args = parts
 
-    -- Алиасы для команд
-    if name == "tp" then
-        name = "goto"
-    end
+    -- Алиасы
+    if name == "tp" then name = "goto" end
 
     if Cmds[name] then
         Cmds[name].run(args, output)
@@ -666,7 +681,7 @@ function ExecuteCommand(cmd, output)
 end
 
 -- ======================================================
--- ВСЕ КОМАНДЫ
+-- COMMANDS
 -- ======================================================
 Cmds.help = {
     desc = "Показать все команды",
@@ -689,9 +704,6 @@ Cmds.help = {
     end
 }
 
--- ======================================================
--- ANTI-AFK
--- ======================================================
 Cmds.antiafk = {
     desc = "Защита от AFK",
     run = function(args, output)
@@ -710,9 +722,6 @@ Cmds.antiafk = {
     end
 }
 
--- ======================================================
--- AUTO CLICK
--- ======================================================
 Cmds.autoclick = {
     desc = "Авто-кликер",
     run = function(args, output)
@@ -735,9 +744,6 @@ Cmds.autoclick = {
     end
 }
 
--- ======================================================
--- SPIN
--- ======================================================
 local function startSpin()
     if Cheat.Flags.Spin then return end
     Cheat.Flags.Spin = true
@@ -774,9 +780,6 @@ Cmds.spin = {
     end
 }
 
--- ======================================================
--- SIT
--- ======================================================
 Cmds.sit = {
     desc = "Сесть",
     run = function(args, output)
@@ -792,14 +795,10 @@ Cmds.sit = {
     end
 }
 
--- ======================================================
--- JUMP
--- ======================================================
 Cmds.jump = {
     desc = "Включить/выключить бесконечный прыжок",
     run = function(args, output)
         Cheat.Flags.InfiniteJump = not Cheat.Flags.InfiniteJump
-
         if Cheat.Flags.InfiniteJump then
             Cheat.Runtime.JumpConnection = UserInputService.JumpRequest:Connect(function()
                 local char = LocalPlayer.Character
@@ -819,9 +818,6 @@ Cmds.jump = {
     end
 }
 
--- ======================================================
--- TPALL
--- ======================================================
 Cmds.tpall = {
     desc = "Телепортировать всех к себе",
     run = function(args, output)
@@ -842,9 +838,6 @@ Cmds.tpall = {
     end
 }
 
--- ======================================================
--- FREEZE
--- ======================================================
 Cmds.freeze = {
     desc = "Заморозить/разморозить себя",
     run = function(args, output)
@@ -879,9 +872,6 @@ Cmds.freeze = {
     end
 }
 
--- ======================================================
--- TIME
--- ======================================================
 Cmds.time = {
     desc = "Установить время (time [0-23])",
     run = function(args, output)
@@ -895,9 +885,6 @@ Cmds.time = {
     end
 }
 
--- ======================================================
--- WEATHER
--- ======================================================
 Cmds.weather = {
     desc = "Сменить погоду (weather [rain/sun/snow])",
     run = function(args, output)
@@ -921,9 +908,6 @@ Cmds.weather = {
     end
 }
 
--- ======================================================
--- SPEED
--- ======================================================
 Cmds.speed = {
     desc = "Установить скорость (speed [число])",
     run = function(args, output)
@@ -936,27 +920,20 @@ Cmds.speed = {
         local char = LocalPlayer.Character
         if char then
             local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.WalkSpeed = speed
-            end
+            if hum then hum.WalkSpeed = speed end
         end
         output("🏃 Скорость установлена: " .. speed, Color3.fromRGB(0, 255, 0))
         SaveSettings()
     end
 }
 
--- ======================================================
--- NOCLIP (исправлено: стабильное прохождение сквозь стены)
--- ======================================================
 Cmds.noclip = {
     desc = "Включить/выключить прохождение сквозь стены",
     run = function(args, output)
         Cheat.Flags.Noclip = not Cheat.Flags.Noclip
-
         if Cheat.Flags.Noclip then
-            -- Запускаем цикл, который будет отключать коллизии каждый кадр
             if not Cheat.Runtime.NoclipConnection then
-                Cheat.Runtime.NoclipConnection = RunService.RenderStepped:Connect(function()
+                Cheat.Runtime.NoclipConnection = RunService.Stepped:Connect(function()
                     if not Cheat.Flags.Noclip then return end
                     local char = LocalPlayer.Character
                     if char then
@@ -970,7 +947,6 @@ Cmds.noclip = {
             end
             output("🚧 Noclip ВКЛЮЧЕН", Color3.fromRGB(0, 255, 0))
         else
-            -- Отключаем цикл и возвращаем коллизии
             if Cheat.Runtime.NoclipConnection then
                 Cheat.Runtime.NoclipConnection:Disconnect()
                 Cheat.Runtime.NoclipConnection = nil
@@ -978,21 +954,15 @@ Cmds.noclip = {
             local char = LocalPlayer.Character
             if char then
                 for _, part in pairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
-                    end
+                    if part:IsA("BasePart") then part.CanCollide = true end
                 end
             end
             output("🚧 Noclip ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
         end
-
         SaveSettings()
     end
 }
 
--- ======================================================
--- FAKEHEAL
--- ======================================================
 Cmds.fakeheal = {
     desc = "Установить здоровье на максимум",
     run = function(args, output)
@@ -1008,7 +978,7 @@ Cmds.fakeheal = {
 }
 
 -- ======================================================
--- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ПОИСКА ИГРОКОВ
+-- PLAYER SEARCH (улучшенный)
 -- ======================================================
 local function FindPlayersByExactName(name)
     local matches = {}
@@ -1051,9 +1021,6 @@ local function FindPlayersBySubstring(substr)
     return matches
 end
 
--- ======================================================
--- GOTO / TP (улучшенный поиск)
--- ======================================================
 Cmds.goto = {
     desc = "Телепортироваться к игроку (точное имя, часть имени или координаты). Алиас: tp",
     run = function(args, output)
@@ -1069,7 +1036,7 @@ Cmds.goto = {
             return
         end
 
-        -- Если первый аргумент число – телепорт по координатам
+        -- Телепорт по координатам
         if tonumber(args[1]) then
             if #args < 3 then
                 output("⚠️ Нужно три координаты: x y z", Color3.fromRGB(255, 255, 0))
@@ -1085,7 +1052,6 @@ Cmds.goto = {
             return
         end
 
-        -- Поиск игрока
         local partialName = table.concat(args, " ")
         local candidates = {}
 
@@ -1109,7 +1075,7 @@ Cmds.goto = {
             return
         end
 
-        -- 2. Начинается с введённого текста
+        -- 2. Начинается с
         candidates = FindPlayersByPrefix(partialName)
         if #candidates == 1 then
             local target = candidates[1]
@@ -1129,7 +1095,7 @@ Cmds.goto = {
             return
         end
 
-        -- 3. Содержит введённый текст
+        -- 3. Содержит
         candidates = FindPlayersBySubstring(partialName)
         if #candidates == 1 then
             local target = candidates[1]
@@ -1149,14 +1115,10 @@ Cmds.goto = {
             return
         end
 
-        -- Если ничего не найдено
         output("⚠️ Игрок с именем, содержащим '" .. partialName .. "', не найден", Color3.fromRGB(255, 255, 0))
     end
 }
 
--- ======================================================
--- ESP
--- ======================================================
 Cmds.esp = {
     desc = "Включить/выключить ESP",
     run = function(args, output)
@@ -1172,9 +1134,6 @@ Cmds.esp = {
     end
 }
 
--- ======================================================
--- SAITAMA
--- ======================================================
 Cmds.saitama = {
     desc = "Включить/выключить режим Сайтамы",
     run = function(args, output)
@@ -1200,9 +1159,6 @@ Cmds.saitama = {
     end
 }
 
--- ======================================================
--- GODMODE
--- ======================================================
 Cmds.godmode = {
     desc = "Включить/выключить бессмертие",
     run = function(args, output)
@@ -1214,9 +1170,7 @@ Cmds.godmode = {
                 if Cheat.Flags.GodMode then
                     task.spawn(function()
                         while Cheat.Flags.GodMode do
-                            if hum and hum.Parent then
-                                hum.Health = hum.MaxHealth
-                            end
+                            if hum and hum.Parent then hum.Health = hum.MaxHealth end
                             task.wait(0.5)
                         end
                     end)
@@ -1229,9 +1183,6 @@ Cmds.godmode = {
     end
 }
 
--- ======================================================
--- INVISIBLE
--- ======================================================
 Cmds.invisible = {
     desc = "Включить/выключить невидимость",
     run = function(args, output)
@@ -1240,11 +1191,7 @@ Cmds.invisible = {
         if char then
             for _, part in pairs(char:GetDescendants()) do
                 if part:IsA("BasePart") then
-                    if Cheat.Flags.Invisible then
-                        part.Transparency = 1
-                    else
-                        part.Transparency = 0
-                    end
+                    part.Transparency = Cheat.Flags.Invisible and 1 or 0
                 end
             end
             output("👻 Невидимость " .. (Cheat.Flags.Invisible and "ВКЛЮЧЕНА" or "ВЫКЛЮЧЕНА"), Color3.fromRGB(0, 255, 0))
@@ -1252,9 +1199,6 @@ Cmds.invisible = {
     end
 }
 
--- ======================================================
--- MM2 AIMBOT / AUTOSHOOT (заглушки)
--- ======================================================
 Cmds.mm2aimbot = {
     desc = "Aimbot для MM2 (заглушка)",
     run = function(args, output)
@@ -1271,48 +1215,25 @@ Cmds.mm2autoshoot = {
     end
 }
 
--- ======================================================
--- RESET (перезапуск скрипта)
--- ======================================================
 Cmds.reset = {
     desc = "Перезапустить скрипт",
     run = function(args, output)
         output("🔄 Перезапуск...", Color3.fromRGB(255, 255, 0))
         task.wait(0.5)
         -- Сброс всех флагов
-        Cheat.Flags.Fly = false
-        Cheat.Flags.Noclip = false
-        Cheat.Flags.ESP = false
-        Cheat.Flags.Saitama = false
-        Cheat.Flags.AntiAFK = false
-        Cheat.Flags.AutoClick = false
-        Cheat.Flags.Spin = false
-        Cheat.Flags.Sit = false
-        Cheat.Flags.Freeze = false
-        Cheat.Flags.GodMode = false
-        Cheat.Flags.Invisible = false
-        Cheat.Flags.InfiniteJump = false
-
-        -- Очистка эффектов
+        for flag, _ in pairs(Cheat.Flags) do
+            Cheat.Flags[flag] = false
+        end
         ClearESP()
-        if Cheat.Runtime.FlyBodyVelocity then
-            Cheat.Runtime.FlyBodyVelocity:Destroy()
-            Cheat.Runtime.FlyBodyVelocity = nil
-        end
-        if Cheat.Runtime.FreezeBV then
-            Cheat.Runtime.FreezeBV:Destroy()
-            Cheat.Runtime.FreezeBV = nil
-        end
-        if Cheat.Runtime.JumpConnection then
-            Cheat.Runtime.JumpConnection:Disconnect()
-            Cheat.Runtime.JumpConnection = nil
-        end
-        if Cheat.Runtime.NoclipConnection then
-            Cheat.Runtime.NoclipConnection:Disconnect()
-            Cheat.Runtime.NoclipConnection = nil
-        end
+        if Cheat.Runtime.FlyBodyVelocity then Cheat.Runtime.FlyBodyVelocity:Destroy() end
+        if Cheat.Runtime.FreezeBV then Cheat.Runtime.FreezeBV:Destroy() end
+        if Cheat.Runtime.JumpConnection then Cheat.Runtime.JumpConnection:Disconnect() end
+        if Cheat.Runtime.NoclipConnection then Cheat.Runtime.NoclipConnection:Disconnect() end
+        Cheat.Runtime.FlyBodyVelocity = nil
+        Cheat.Runtime.FreezeBV = nil
+        Cheat.Runtime.JumpConnection = nil
+        Cheat.Runtime.NoclipConnection = nil
 
-        -- Вернуть персонажа в нормальное состояние
         local char = LocalPlayer.Character
         if char then
             local hum = char:FindFirstChild("Humanoid")
@@ -1328,65 +1249,36 @@ Cmds.reset = {
                 end
             end
         end
-
-        -- Закрыть мобильный джойстик
-        if IsMobile then
-            JoyGui.Enabled = false
-        end
-
+        if IsMobile then JoyGui.Enabled = false end
         output("✅ Скрипт перезапущен", Color3.fromRGB(0, 255, 0))
     end
 }
 
--- ======================================================
--- UNLOAD
--- ======================================================
 Cmds.unload = {
     desc = "Выключить скрипт и очистить память",
     run = function(args, output)
         -- Отключаем все соединения
-        for _, connection in pairs(Cheat.Runtime.Connections) do
-            pcall(function() connection:Disconnect() end)
-        end
+        for _, connection in pairs(Cheat.Runtime.Connections) do pcall(function() connection:Disconnect() end) end
         Cheat.Runtime.Connections = {}
-
-        if Cheat.Runtime.JumpConnection then
-            Cheat.Runtime.JumpConnection:Disconnect()
-            Cheat.Runtime.JumpConnection = nil
-        end
-        if Cheat.Runtime.NoclipConnection then
-            Cheat.Runtime.NoclipConnection:Disconnect()
-            Cheat.Runtime.NoclipConnection = nil
-        end
-
-        -- Очистка
+        if Cheat.Runtime.JumpConnection then Cheat.Runtime.JumpConnection:Disconnect() end
+        if Cheat.Runtime.NoclipConnection then Cheat.Runtime.NoclipConnection:Disconnect() end
         ClearESP()
-        if Cheat.Runtime.FlyBodyVelocity then
-            Cheat.Runtime.FlyBodyVelocity:Destroy()
-            Cheat.Runtime.FlyBodyVelocity = nil
-        end
-        if Cheat.Runtime.FreezeBV then
-            Cheat.Runtime.FreezeBV:Destroy()
-            Cheat.Runtime.FreezeBV = nil
-        end
-
-        -- Уничтожаем GUI
+        if Cheat.Runtime.FlyBodyVelocity then Cheat.Runtime.FlyBodyVelocity:Destroy() end
+        if Cheat.Runtime.FreezeBV then Cheat.Runtime.FreezeBV:Destroy() end
         if GUI then GUI:Destroy() GUI = nil end
         if MobileButton then MobileButton:Destroy() end
         if JoyGui then JoyGui:Destroy() end
-
         output("🛑 Скрипт полностью выгружен из памяти", Color3.fromRGB(255, 0, 0))
     end
 }
 
 -- ======================================================
--- FLY
+-- FLY (исправлен)
 -- ======================================================
 Cmds.fly = {
     desc = "Включить/выключить полет",
     run = function(args, output)
         Cheat.Flags.Fly = not Cheat.Flags.Fly
-
         if Cheat.Flags.Fly then
             local char = LocalPlayer.Character
             if char then
@@ -1394,51 +1286,32 @@ Cmds.fly = {
                 local root = char:FindFirstChild("HumanoidRootPart")
                 if hum and root then
                     hum.PlatformStand = true
-
-                    if Cheat.Runtime.FlyBodyVelocity then
-                        Cheat.Runtime.FlyBodyVelocity:Destroy()
-                    end
-
+                    if Cheat.Runtime.FlyBodyVelocity then Cheat.Runtime.FlyBodyVelocity:Destroy() end
                     Cheat.Runtime.FlyBodyVelocity = Instance.new("BodyVelocity")
                     Cheat.Runtime.FlyBodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 100000
                     Cheat.Runtime.FlyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
                     Cheat.Runtime.FlyBodyVelocity.Parent = root
-
-                    if IsMobile then
-                        JoyGui.Enabled = true
-                    end
+                    if IsMobile then JoyGui.Enabled = true end
                 end
             end
             output("✈️ Полет ВКЛЮЧЕН", Color3.fromRGB(0, 255, 0))
         else
-            if Cheat.Runtime.FlyBodyVelocity then
-                Cheat.Runtime.FlyBodyVelocity:Destroy()
-                Cheat.Runtime.FlyBodyVelocity = nil
-            end
-
+            if Cheat.Runtime.FlyBodyVelocity then Cheat.Runtime.FlyBodyVelocity:Destroy() end
+            Cheat.Runtime.FlyBodyVelocity = nil
             local char = LocalPlayer.Character
             if char then
                 local hum = char:FindFirstChild("Humanoid")
-                if hum then
-                    hum.PlatformStand = false
-                end
+                if hum then hum.PlatformStand = false end
             end
-
-            if IsMobile then
-                JoyGui.Enabled = false
-            end
-
+            if IsMobile then JoyGui.Enabled = false end
             output("✈️ Полет ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
         end
-
         SaveSettings()
     end
 }
 
 RunService.RenderStepped:Connect(function()
-    if not Cheat.Flags.Fly or not Cheat.Runtime.FlyBodyVelocity then
-        return
-    end
+    if not Cheat.Flags.Fly or not Cheat.Runtime.FlyBodyVelocity then return end
 
     local speed = 70
     local vel = Vector3.new(0, 0, 0)
@@ -1454,23 +1327,18 @@ RunService.RenderStepped:Connect(function()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel = vel + up * speed end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vel = vel - up * speed end
     else
+        -- Мобильное управление через кастомный джойстик + кнопки
         vel = vel + right * Cheat.Runtime.FlyDirection.X * speed
         vel = vel + look * Cheat.Runtime.FlyDirection.Z * speed
-
-        if Cheat.Runtime.FlyUpActive then
-            vel = vel + up * speed
-        end
-
-        if Cheat.Runtime.FlyDownActive then
-            vel = vel - up * speed
-        end
+        if Cheat.Runtime.FlyUpActive then vel = vel + up * speed end
+        if Cheat.Runtime.FlyDownActive then vel = vel - up * speed end
     end
 
     Cheat.Runtime.FlyBodyVelocity.Velocity = vel
 end)
 
 -- ======================================================
--- ЗАПУСК
+-- INIT
 -- ======================================================
 CreateConsole()
 if GUI then GUI.Enabled = false end
