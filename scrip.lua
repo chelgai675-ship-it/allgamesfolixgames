@@ -604,63 +604,86 @@ local function StartFly()
 end
 
 local function UpdateFly()
-    if not Cheat.Flags.Fly then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not hum or not root or hum.Health <= 0 then return end
-
-    local bv = Cheat.Runtime.FlyBodyVelocity
-    if not bv or bv.Parent ~= root then
-        DestroyFlyVelocity()
-        bv = Instance.new("BodyVelocity")
-        bv.Name = "MAX_FlyVelocity"
-        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bv.P = 100000
-        bv.Velocity = Vector3.zero
-        bv.Parent = root
-        Cheat.Runtime.FlyBodyVelocity = bv
+    if not Cheat.Flags.Fly then
+        return
     end
 
-    hum.PlatformStand = true
+    local char = LocalPlayer.Character
+    if not char then
+        return
+    end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local bv = Cheat.Runtime.FlyBodyVelocity
+
+    if not hum or not root or not bv or bv.Parent ~= root then
+        StopFly()
+        return
+    end
+
+    if hum.Health <= 0 then
+        StopFly()
+        return
+    end
+
     Camera = workspace.CurrentCamera
-    if not Camera then return end
+    if not Camera then
+        return
+    end
+
     local speed = tonumber(Cheat.Config.FlySpeed) or 70
     local velocity = Vector3.zero
+
     local look = Camera.CFrame.LookVector
     local right = Camera.CFrame.RightVector
-    local up = Vector3.new(0,1,0)
+    local up = Vector3.new(0, 1, 0)
 
     if IsDesktop then
-        -- Клавиатурное управление Fly. KeyboardEnabled важнее TouchEnabled:
-        -- на ПК с сенсорным экраном раньше ошибочно включался режим джойстика.
-        -- W/S теперь полностью следуют направлению камеры:
-        -- смотришь вверх + W = летишь вверх,
-        -- смотришь вниз + W = летишь вниз.
-        local forward = look
-        local strafe = right
-        if forward.Magnitude > 0 then forward = forward.Unit end
-        if strafe.Magnitude > 0 then strafe = strafe.Unit end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            velocity += look * speed
+        end
 
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then velocity += forward * speed end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then velocity -= forward * speed end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then velocity -= strafe * speed end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then velocity += strafe * speed end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then velocity += up * speed end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then velocity -= up * speed end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            velocity -= look * speed
+        end
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            velocity -= right * speed
+        end
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            velocity += right * speed
+        end
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            velocity += up * speed
+        end
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            velocity -= up * speed
+        end
     else
         local center = JoyFrame.AbsolutePosition + JoyFrame.AbsoluteSize / 2
         local stickCenter = JoyStick.AbsolutePosition + JoyStick.AbsoluteSize / 2
         local delta = stickCenter - center
         local maxDist = 40
+
         local x = math.clamp(delta.X / maxDist, -1, 1)
         local z = math.clamp(delta.Y / maxDist, -1, 1)
+
         velocity += right * x * speed
         velocity += look * (-z) * speed
-        if FlyUpActive then velocity += up * speed end
-        if FlyDownActive then velocity -= up * speed end
+
+        if FlyUpActive then
+            velocity += up * speed
+        end
+
+        if FlyDownActive then
+            velocity -= up * speed
+        end
     end
+
     bv.Velocity = velocity
 end
 
@@ -1687,7 +1710,12 @@ local function AddUnAlias(unName, baseName, flagName)
         desc = "Выключить " .. baseName,
         run = function(args, output)
             if Cheat.Flags[flagName] then
-                Cmds[baseName].run({}, output)
+                if unName == "unfly" then
+                    StopFly()
+                    output("✈️ Полет ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
+                else
+                    Cmds[baseName].run({}, output)
+                end
             else
                 output(
                     "ℹ️ " .. baseName .. " уже выключен",
