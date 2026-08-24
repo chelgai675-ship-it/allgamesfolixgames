@@ -313,31 +313,59 @@ end
 -- ======================================================
 
 local function GetTeamColor(pl)
-    local color = Color3.fromRGB(255, 255, 255)
+    -- Определяем настоящий цвет команды, а не просто
+    -- красный/зелёный по отношению к LocalPlayer.
     local char = pl.Character
+    local teamColor = pl.TeamColor
 
-    local function hasTool(toolName)
-        if char and char:FindFirstChild(toolName) then
-            return true
+    -- 1. Roblox TeamColor — самый надёжный вариант, если Team существует.
+    if pl.Team and teamColor then
+        return teamColor.Color
+    end
+
+    -- 2. Если игра использует цветные SpawnLocation,
+    -- пытаемся определить команду по ближайшему спавну.
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        local nearestColor = nil
+        local nearestDistance = math.huge
+
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("SpawnLocation") and obj.Neutral == false then
+                local distance = (obj.Position - root.Position).Magnitude
+                if distance < nearestDistance then
+                    nearestDistance = distance
+                    nearestColor = obj.TeamColor.Color
+                end
+            end
         end
 
-        local backpack = pl:FindFirstChild("Backpack")
-        return backpack and backpack:FindFirstChild(toolName) ~= nil
+        if nearestColor and nearestDistance <= 35 then
+            return nearestColor
+        end
     end
 
-    if hasTool("Knife") or hasTool("MurdererKnife") then
-        color = Color3.fromRGB(255, 50, 50)
-    elseif hasTool("Gun") or hasTool("Pistol") or hasTool("Revolver") then
-        color = Color3.fromRGB(50, 120, 255)
+    -- 3. Некоторые игры не используют Team/SpawnLocation,
+    -- поэтому проверяем типичные объекты/значения с цветом команды.
+    local candidates = {
+        char and char:FindFirstChild("TeamColor"),
+        char and char:FindFirstChild("Team"),
+        pl:FindFirstChild("TeamColor"),
+    }
+
+    for _, obj in ipairs(candidates) do
+        if obj then
+            if obj:IsA("BrickColorValue") then
+                return obj.Value.Color
+            elseif obj:IsA("Color3Value") then
+                return obj.Value
+            end
+        end
     end
 
-    if pl.Team and LocalPlayer.Team and pl.Team ~= LocalPlayer.Team then
-        color = Color3.fromRGB(255, 50, 50)
-    elseif pl.Team and LocalPlayer.Team and pl.Team == LocalPlayer.Team then
-        color = Color3.fromRGB(50, 255, 100)
-    end
-
-    return color
+    -- 4. Если команда действительно не определилась,
+    -- используем нейтральный белый вместо ложного красного/зелёного.
+    return Color3.fromRGB(255, 255, 255)
 end
 
 local function ClearESP()
