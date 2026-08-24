@@ -56,19 +56,22 @@ local Cheat = {
         FlyRenderConnection = nil,
         GodModeConnection = nil,
         SpinThread = nil,
+        OriginalWalkSpeed = nil,
     }
 }
 
 local GUI
 local InputBox
 local OutputScrolling
+local SuggestionLabel
 local Cmds = {}
+local MobileButton
 
 local LastRightShiftPress = 0
 local RightShiftPressCount = 0
 
-local IsMobile = UserInputService.TouchEnabled
-local IsDesktop = not IsMobile
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local IsDesktop = UserInputService.KeyboardEnabled
 
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -313,59 +316,18 @@ end
 -- ======================================================
 
 local function GetTeamColor(pl)
-    -- Определяем настоящий цвет команды, а не просто
-    -- красный/зелёный по отношению к LocalPlayer.
-    local char = pl.Character
-    local teamColor = pl.TeamColor
-
-    -- 1. Roblox TeamColor — самый надёжный вариант, если Team существует.
-    if pl.Team and teamColor then
-        return teamColor.Color
-    end
-
-    -- 2. Если игра использует цветные SpawnLocation,
-    -- пытаемся определить команду по ближайшему спавну.
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        local nearestColor = nil
-        local nearestDistance = math.huge
-
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("SpawnLocation") and obj.Neutral == false then
-                local distance = (obj.Position - root.Position).Magnitude
-                if distance < nearestDistance then
-                    nearestDistance = distance
-                    nearestColor = obj.TeamColor.Color
-                end
-            end
-        end
-
-        if nearestColor and nearestDistance <= 35 then
-            return nearestColor
-        end
-    end
-
-    -- 3. Некоторые игры не используют Team/SpawnLocation,
-    -- поэтому проверяем типичные объекты/значения с цветом команды.
-    local candidates = {
-        char and char:FindFirstChild("TeamColor"),
-        char and char:FindFirstChild("Team"),
-        pl:FindFirstChild("TeamColor"),
-    }
-
-    for _, obj in ipairs(candidates) do
-        if obj then
-            if obj:IsA("BrickColorValue") then
-                return obj.Value.Color
-            elseif obj:IsA("Color3Value") then
-                return obj.Value
+    if pl.Team then return pl.TeamColor.Color end
+    local containers = {pl, pl.Character}
+    for _, container in ipairs(containers) do
+        if container then
+            local v = container:FindFirstChild("TeamColor")
+            if v then
+                if v:IsA("BrickColorValue") then return v.Value.Color end
+                if v:IsA("Color3Value") then return v.Value end
             end
         end
     end
-
-    -- 4. Если команда действительно не определилась,
-    -- используем нейтральный белый вместо ложного красного/зелёного.
-    return Color3.fromRGB(255, 255, 255)
+    return Color3.fromRGB(170, 170, 170)
 end
 
 local function ClearESP()
@@ -642,82 +604,71 @@ local function StartFly()
 end
 
 local function UpdateFly()
-    if not Cheat.Flags.Fly then
-        return
-    end
-
+    if not Cheat.Flags.Fly then return end
     local char = LocalPlayer.Character
-    if not char then
-        return
-    end
-
+    if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root or hum.Health <= 0 then return end
+
     local bv = Cheat.Runtime.FlyBodyVelocity
-
-    if not hum or not root or not bv or bv.Parent ~= root then
-        StopFly()
-        return
+    if not bv or bv.Parent ~= root then
+        DestroyFlyVelocity()
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "MAX_FlyVelocity"
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.P = 100000
+        bv.Velocity = Vector3.zero
+        bv.Parent = root
+        Cheat.Runtime.FlyBodyVelocity = bv
     end
 
-    if hum.Health <= 0 then
-        StopFly()
-        return
-    end
-
+    hum.PlatformStand = true
     Camera = workspace.CurrentCamera
     if not Camera then return end
-
     local speed = tonumber(Cheat.Config.FlySpeed) or 70
     local velocity = Vector3.zero
-
     local look = Camera.CFrame.LookVector
     local right = Camera.CFrame.RightVector
-    local up = Vector3.new(0, 1, 0)
+    local up = Vector3.new(0,1,0)
 
     if IsDesktop then
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            velocity += look * speed
-        end
+        -- Клавиатурное управление Fly. KeyboardEnabled важнее TouchEnabled:
+        -- на ПК с сенсорным экраном раньше ошибочно включался режим джойстика.
+        -- W/S теперь полностью следуют направлению камеры:
+        -- смотришь вверх + W = летишь вверх,
+        -- смотришь вниз + W = летишь вниз.
+        local forward = look
+        local strafe = right
+        if forward.Magnitude > 0 then forward = forward.Unit end
+        if strafe.Magnitude > 0 then strafe = strafe.Unit end
 
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            velocity -= look * speed
-        end
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            velocity -= right * speed
-        end
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            velocity += right * speed
-        end
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            velocity += up * speed
-        end
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            velocity -= up * speed
-        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then velocity += forward * speed end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then velocity -= forward * speed end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then velocity -= strafe * speed end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then velocity += strafe * speed end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then velocity += up * speed end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then velocity -= up * speed end
     else
         local center = JoyFrame.AbsolutePosition + JoyFrame.AbsoluteSize / 2
         local stickCenter = JoyStick.AbsolutePosition + JoyStick.AbsoluteSize / 2
         local delta = stickCenter - center
         local maxDist = 40
-
         local x = math.clamp(delta.X / maxDist, -1, 1)
         local z = math.clamp(delta.Y / maxDist, -1, 1)
-
         velocity += right * x * speed
         velocity += look * (-z) * speed
-
         if FlyUpActive then velocity += up * speed end
         if FlyDownActive then velocity -= up * speed end
     end
-
     bv.Velocity = velocity
 end
 
+-- Постоянное обновление Fly: после ручного включения команда fly
+-- создаёт BodyVelocity, а этот цикл управляет им каждый кадр.
+if Cheat.Runtime.FlyRenderConnection then
+    Cheat.Runtime.FlyRenderConnection:Disconnect()
+end
 Cheat.Runtime.FlyRenderConnection =
     RunService.RenderStepped:Connect(UpdateFly)
 
@@ -726,55 +677,53 @@ Cheat.Runtime.FlyRenderConnection =
 -- ======================================================
 
 LocalPlayer.CharacterRemoving:Connect(function()
-    -- Старый персонаж удаляется.
-    -- Fly полностью выключается.
+    -- После смерти Fly обязательно выключается.
+    -- После респавна его нужно включить командой fly вручную.
     StopFly()
+
+    if Cheat.Runtime.FreezeBV then
+        pcall(function() Cheat.Runtime.FreezeBV:Destroy() end)
+        Cheat.Runtime.FreezeBV = nil
+    end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function(character)
-    -- Fly здесь НЕ запускается автоматически.
-    -- После загрузки новый fly создаётся командой "fly".
-
     task.spawn(function()
         local hum = character:WaitForChild("Humanoid", 10)
         local root = character:WaitForChild("HumanoidRootPart", 10)
-
-        if not hum or not root then
-            return
-        end
-
+        if not hum or not root then return end
         task.wait(0.2)
 
+        -- Сохраняем исходную скорость игры один раз.
+        -- Команда unspeed вернёт именно её.
+        if Cheat.Runtime.OriginalWalkSpeed == nil then
+            Cheat.Runtime.OriginalWalkSpeed = hum.WalkSpeed
+        end
+
+        -- Speed сохраняется.
         hum.WalkSpeed = Cheat.Config.SpeedValue
 
+        -- Noclip сохраняется.
         if Cheat.Flags.Noclip then
             if Cheat.Runtime.NoclipConnection then
-                pcall(function()
-                    Cheat.Runtime.NoclipConnection:Disconnect()
-                end)
-                Cheat.Runtime.NoclipConnection = nil
+                pcall(function() Cheat.Runtime.NoclipConnection:Disconnect() end)
             end
-
-            Cheat.Runtime.NoclipConnection =
-                RunService.Stepped:Connect(function()
-                    if not Cheat.Flags.Noclip then return end
-
-                    local currentChar = LocalPlayer.Character
-                    if not currentChar then return end
-
-                    for _, part in ipairs(currentChar:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
-                    end
-                end)
+            Cheat.Runtime.NoclipConnection = RunService.Stepped:Connect(function()
+                if not Cheat.Flags.Noclip then return end
+                local currentChar = LocalPlayer.Character
+                if not currentChar then return end
+                for _, part in ipairs(currentChar:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+            end)
         end
+
+        -- Fly намеренно НЕ восстанавливается автоматически после респавна.
+        -- Флаг уже сброшен в CharacterRemoving; включение только через команду fly.
 
         if Cheat.Flags.Saitama then
             local newRoot = character:FindFirstChild("HumanoidRootPart")
-            if newRoot then
-                AddSaitamaEffect(newRoot)
-            end
+            if newRoot then AddSaitamaEffect(newRoot) end
         end
     end)
 end)
@@ -866,8 +815,8 @@ local function CreateConsole()
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, 0, 0, 40)
     Title.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
-    Title.Text = "⚡ MAX EDITION & DEEPSEEK"
-    Title.TextColor3 = Color3.fromRGB(255, 215, 0)
+    Title.Text = "S MAX EDITION & DEEPSEEK"
+    Title.TextColor3 = Color3.fromRGB(255, 0, 0)
     Title.TextScaled = true
     Title.Font = Enum.Font.GothamBold
     Title.Parent = MainFrame
@@ -876,7 +825,7 @@ local function CreateConsole()
     InfoLabel.Size = UDim2.new(1, 0, 0, 20)
     InfoLabel.Position = UDim2.new(0, 0, 0, 40)
     InfoLabel.BackgroundTransparency = 1
-    InfoLabel.Text = "🟢 ⚡ или двойной RightShift"
+    InfoLabel.Text = "🟢 S или двойной RightShift"
     InfoLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
     InfoLabel.TextScaled = true
     InfoLabel.Font = Enum.Font.Gotham
@@ -907,12 +856,85 @@ local function CreateConsole()
     InputBox.PlaceholderText = "Введите команду... (help)"
     InputBox.Parent = MainFrame
 
+    SuggestionLabel = Instance.new("TextLabel")
+    SuggestionLabel.Size = UDim2.new(1, -20, 0, 24)
+    SuggestionLabel.Position = UDim2.new(0, 10, 0, 392)
+    SuggestionLabel.BackgroundTransparency = 1
+    SuggestionLabel.Text = ""
+    SuggestionLabel.TextColor3 = Color3.fromRGB(180, 180, 255)
+    SuggestionLabel.TextXAlignment = Enum.TextXAlignment.Left
+    SuggestionLabel.TextSize = 14
+    SuggestionLabel.Font = Enum.Font.Gotham
+    SuggestionLabel.Parent = MainFrame
+
+    local function UpdateSuggestions()
+        if not InputBox or not SuggestionLabel then return end
+
+        local prefix = (InputBox.Text:match("^%s*(%S*)") or ""):lower()
+
+        if prefix == "" then
+            SuggestionLabel.Text = ""
+            return
+        end
+
+        local matches = {}
+        for name, command in pairs(Cmds) do
+            if type(name) == "string"
+                and type(command) == "table"
+                and name:sub(1, #prefix) == prefix then
+                table.insert(matches, name)
+            end
+        end
+
+        table.sort(matches)
+
+        local shown = {}
+        for i = 1, math.min(#matches, 6) do
+            table.insert(shown, matches[i])
+        end
+
+        if #shown > 0 then
+            SuggestionLabel.Text =
+                "Команды: " .. table.concat(shown, "  |  ") ..
+                (#matches > #shown and "  ..." or "")
+        else
+            SuggestionLabel.Text = "Команда не найдена"
+        end
+    end
+
+    InputBox:GetPropertyChangedSignal("Text"):Connect(UpdateSuggestions)
+
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if not InputBox or not InputBox:IsFocused() then return end
+        if input.KeyCode ~= Enum.KeyCode.Tab then return end
+
+        local prefix = (InputBox.Text:match("^%s*(%S*)") or ""):lower()
+        if prefix == "" then return end
+
+        local matches = {}
+        for name, command in pairs(Cmds) do
+            if type(name) == "string"
+                and type(command) == "table"
+                and name:sub(1, #prefix) == prefix then
+                table.insert(matches, name)
+            end
+        end
+
+        table.sort(matches)
+
+        if #matches > 0 then
+            InputBox.Text = matches[1] .. " "
+            InputBox.CursorPosition = #InputBox.Text + 1
+        end
+    end)
+
     local function output(text, color)
         AddConsoleOutput(text, color)
     end
 
     output(
-        "⚡ MAX EDITION | TouchFling удалён | Fly fixed",
+        "S MAX EDITION | TouchFling удалён | Fly fixed",
         Color3.fromRGB(255, 215, 0)
     )
 
@@ -955,7 +977,11 @@ Cmds.help = {
             "antiafk", "autoclick", "spin", "sit",
             "jump", "tpall", "freeze", "time", "weather",
             "godmode", "invisible", "mm2aimbot",
-            "mm2autoshoot", "reset", "unload"
+            "mm2autoshoot", "reset", "unload",
+            "unfly", "unnoclip", "unesp", "unsaitama",
+            "unjump", "unantiafk", "unautoclick", "unspin",
+            "unsit", "unfreeze", "ungodmode", "uninvisible",
+            "unmm2aimbot", "unmm2autoshoot", "unspeed"
         }
 
         for _, name in ipairs(commands) do
@@ -987,7 +1013,12 @@ Cmds.fly = {
                 math.clamp(requested, 1, 100000)
         end
 
-        if Cheat.Flags.Fly then
+        local currentRoot = GetRoot()
+        local currentBV = Cheat.Runtime.FlyBodyVelocity
+
+        -- Если Fly-флаг остался включён, но после респавна старого
+        -- BodyVelocity уже нет, команда fly повторно запускает полёт.
+        if Cheat.Flags.Fly and currentRoot and currentBV and currentBV.Parent == currentRoot then
             output(
                 "✈️ Полет уже включен | скорость: " ..
                 tostring(Cheat.Config.FlySpeed),
@@ -1648,6 +1679,71 @@ Cmds.mm2autoshoot = {
 }
 
 -- ======================================================
+-- UN-КОМАНДЫ
+-- ======================================================
+
+local function AddUnAlias(unName, baseName, flagName)
+    Cmds[unName] = {
+        desc = "Выключить " .. baseName,
+        run = function(args, output)
+            if Cheat.Flags[flagName] then
+                Cmds[baseName].run({}, output)
+            else
+                output(
+                    "ℹ️ " .. baseName .. " уже выключен",
+                    Color3.fromRGB(180, 180, 180)
+                )
+            end
+        end
+    }
+end
+
+AddUnAlias("unfly", "fly", "Fly")
+AddUnAlias("unnoclip", "noclip", "Noclip")
+AddUnAlias("unesp", "esp", "ESP")
+AddUnAlias("unsaitama", "saitama", "Saitama")
+AddUnAlias("unjump", "jump", "InfiniteJump")
+AddUnAlias("unantiafk", "antiafk", "AntiAFK")
+AddUnAlias("unautoclick", "autoclick", "AutoClick")
+AddUnAlias("unspin", "spin", "Spin")
+AddUnAlias("unsit", "sit", "Sit")
+AddUnAlias("unfreeze", "freeze", "Freeze")
+AddUnAlias("ungodmode", "godmode", "GodMode")
+AddUnAlias("uninvisible", "invisible", "Invisible")
+AddUnAlias("unmm2aimbot", "mm2aimbot", "MM2Aimbot")
+AddUnAlias("unmm2autoshoot", "mm2autoshoot", "MM2AutoShoot")
+
+Cmds.unspeed = {
+    desc = "Вернуть исходную скорость игры",
+    run = function(args, output)
+        local hum = GetHumanoid()
+        local original = Cheat.Runtime.OriginalWalkSpeed
+
+        if not original then
+            if hum then
+                original = hum.WalkSpeed
+                Cheat.Runtime.OriginalWalkSpeed = original
+            else
+                original = 16
+            end
+        end
+
+        Cheat.Config.SpeedValue = original
+
+        if hum then
+            hum.WalkSpeed = original
+        end
+
+        SaveSettings()
+
+        output(
+            "🏃 Исходная скорость восстановлена: " .. tostring(original),
+            Color3.fromRGB(0, 255, 0)
+        )
+    end
+}
+
+-- ======================================================
 -- RESET
 -- ======================================================
 
@@ -1702,7 +1798,9 @@ Cmds.reset = {
         if hum then
             hum.PlatformStand = false
             hum.Sit = false
-            hum.WalkSpeed = 16
+            local originalSpeed = Cheat.Runtime.OriginalWalkSpeed or 16
+            hum.WalkSpeed = originalSpeed
+            Cheat.Config.SpeedValue = originalSpeed
         end
 
         if char then
@@ -1773,6 +1871,8 @@ Cmds.unload = {
             Cheat.Runtime.FreezeBV = nil
         end
 
+        output("🛑 Скрипт выгружен", Color3.fromRGB(255, 0, 0))
+
         if GUI then
             GUI:Destroy()
             GUI = nil
@@ -1784,9 +1884,8 @@ Cmds.unload = {
 
         if MobileButton then
             MobileButton:Destroy()
+            MobileButton = nil
         end
-
-        output("🛑 Скрипт выгружен", Color3.fromRGB(255, 0, 0))
     end
 }
 
@@ -1794,7 +1893,7 @@ Cmds.unload = {
 -- MOBILE OPEN BUTTON
 -- ======================================================
 
-local MobileButton = Instance.new("ScreenGui")
+MobileButton = Instance.new("ScreenGui")
 MobileButton.Name = "MobileOpenButton"
 MobileButton.ResetOnSpawn = false
 MobileButton.Parent = PlayerGui
@@ -1804,9 +1903,9 @@ OpenBtn.Size = UDim2.new(0, 60, 0, 60)
 OpenBtn.Position = UDim2.new(0.9, 0, 0.05, 0)
 OpenBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 60)
 OpenBtn.BorderSizePixel = 2
-OpenBtn.BorderColor3 = Color3.fromRGB(255, 215, 0)
-OpenBtn.Text = "⚡"
-OpenBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
+OpenBtn.BorderColor3 = Color3.fromRGB(255, 0, 0)
+OpenBtn.Text = "S"
+OpenBtn.TextColor3 = Color3.fromRGB(255, 0, 0)
 OpenBtn.TextScaled = true
 OpenBtn.Font = Enum.Font.GothamBold
 OpenBtn.Parent = MobileButton
@@ -1869,7 +1968,7 @@ JoyGui.Enabled = false
 
 pcall(function()
     StarterGui:SetCore("SendNotification", {
-        Title = "⚡ MAX EDITION",
+        Title = "S MAX EDITION",
         Text = "Fly исправлен. После респавна включай fly вручную.",
         Duration = 5
     })
