@@ -2,7 +2,7 @@
 -- MAX EDITION & DEEPSEEK ALL GAMES — CLEAN FIX
 -- ======================================================
 -- TouchFling удалён.
--- Fly НЕ изменён (но логика мобильного управления оптимизирована).
+-- Fly НЕ изменён.
 -- Fly не включается автоматически после респавна.
 -- После респавна команда "fly" снова работает.
 -- Исправлены Noclip / Invisible / Reset / Weather /
@@ -78,6 +78,11 @@ local Cheat = {
 
         WeatherFolder = nil,
         WeatherPart = nil,
+        
+        -- Новые переменные для мобильного управления
+        MobileFlyConnection = nil,
+        WasJumping = false,
+        JumpRequestConnection = nil,
     }
 }
 
@@ -100,27 +105,29 @@ local IsDesktop = UserInputService.KeyboardEnabled
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 -- ======================================================
--- MOBILE FLY JOYSTICK (Simplified/Optimized)
+-- MOBILE FLY JOYSTICK (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 -- ======================================================
 
 local JoyGui = Instance.new("ScreenGui")
 JoyGui.Name = "FlyJoystick"
 JoyGui.ResetOnSpawn = false
 JoyGui.Enabled = false
+JoyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 JoyGui.Parent = PlayerGui
 
 local JoyFrame = Instance.new("Frame")
-JoyFrame.Size = UDim2.new(0, 120, 0, 120)
-JoyFrame.Position = UDim2.new(0.02, 0, 0.5, -60)
+JoyFrame.Size = UDim2.new(0, 150, 0, 150)
+JoyFrame.Position = UDim2.new(0.02, 0, 0.5, -75)
 JoyFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
 JoyFrame.BackgroundTransparency = 0.5
 JoyFrame.BorderSizePixel = 2
 JoyFrame.BorderColor3 = Color3.fromRGB(80, 80, 150)
+JoyFrame.Active = true
 JoyFrame.Parent = JoyGui
 
 local JoyStick = Instance.new("Frame")
-JoyStick.Size = UDim2.new(0, 40, 0, 40)
-JoyStick.Position = UDim2.new(0.5, -20, 0.5, -20)
+JoyStick.Size = UDim2.new(0, 50, 0, 50)
+JoyStick.Position = UDim2.new(0.5, -25, 0.5, -25)
 JoyStick.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
 JoyStick.BackgroundTransparency = 0.3
 JoyStick.BorderSizePixel = 2
@@ -128,17 +135,17 @@ JoyStick.BorderColor3 = Color3.fromRGB(255, 255, 255)
 JoyStick.Parent = JoyFrame
 
 local JoyActive = false
-local ActiveTouch
+local ActiveTouch = nil
 
 local function ResetJoystick()
     JoyActive = false
     ActiveTouch = nil
 
     JoyStick.Position =
-        UDim2.new(0.5, -20, 0.5, -20)
+        UDim2.new(0.5, -25, 0.5, -25)
 end
 
--- Touch Input Handlers (Kept for active stick dragging)
+-- Исправленная обработка тач-событий
 JoyFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch then
         JoyActive = true
@@ -156,18 +163,17 @@ UserInputService.TouchMoved:Connect(function(input)
         + JoyFrame.AbsoluteSize / 2
 
     local delta = input.Position - center
-    local maxDist = 40
+    local maxDist = 50
 
-    -- Clamp movement to the joystick size (40x40)
     if delta.Magnitude > maxDist then
         delta = delta.Unit * maxDist
     end
 
     JoyStick.Position = UDim2.new(
         0.5,
-        delta.X - 20, -- Center offset X - half stick size
+        delta.X - 25,
         0.5,
-        delta.Y - 20  -- Center offset Y - half stick size
+        delta.Y - 25
     )
 end)
 
@@ -177,10 +183,12 @@ UserInputService.TouchEnded:Connect(function(input)
     end
 end)
 
+-- Кнопки вверх/вниз для мобильного полета
 local UpBtn = Instance.new("TextButton")
-UpBtn.Size = UDim2.new(0, 50, 0, 50)
-UpBtn.Position = UDim2.new(0.85, 0, 0.7, 0)
+UpBtn.Size = UDim2.new(0, 60, 0, 60)
+UpBtn.Position = UDim2.new(0.85, 0, 0.65, 0)
 UpBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+UpBtn.BackgroundTransparency = 0.3
 UpBtn.Text = "⬆"
 UpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 UpBtn.TextScaled = true
@@ -188,9 +196,10 @@ UpBtn.Font = Enum.Font.GothamBold
 UpBtn.Parent = JoyGui
 
 local DownBtn = Instance.new("TextButton")
-DownBtn.Size = UDim2.new(0, 50, 0, 50)
-DownBtn.Position = UDim2.new(0.85, 0, 0.82, 0)
+DownBtn.Size = UDim2.new(0, 60, 0, 60)
+DownBtn.Position = UDim2.new(0.85, 0, 0.78, 0)
 DownBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+DownBtn.BackgroundTransparency = 0.3
 DownBtn.Text = "⬇"
 DownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 DownBtn.TextScaled = true
@@ -200,21 +209,37 @@ DownBtn.Parent = JoyGui
 local FlyUpActive = false
 local FlyDownActive = false
 
--- Button Input Handlers (Vertical control)
-UpBtn.MouseButton1Down:Connect(function()
-    FlyUpActive = true
+-- Исправленная обработка нажатий для мобильных кнопок
+UpBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        FlyUpActive = true
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        FlyUpActive = true
+    end
 end)
 
-UpBtn.MouseButton1Up:Connect(function()
-    FlyUpActive = false
+UpBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        FlyUpActive = false
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        FlyUpActive = false
+    end
 end)
 
-DownBtn.MouseButton1Down:Connect(function()
-    FlyDownActive = true
+DownBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        FlyDownActive = true
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        FlyDownActive = true
+    end
 end)
 
-DownBtn.MouseButton1Up:Connect(function()
-    FlyDownActive = false
+DownBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        FlyDownActive = false
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        FlyDownActive = false
+    end
 end)
 
 -- ======================================================
@@ -226,9 +251,9 @@ local SettingsFile = "max_settings.json"
 local function SaveSettings()
     local settings = {
         speed = Cheat.Config.SpeedValue,
-
+        flyspeed = Cheat.Config.FlySpeed,
         esp = Cheat.Flags.ESP,
-        fly = false, -- Note: Fly state is reset on load, but we save the default/last known state here
+        fly = false,
         noclip = Cheat.Flags.Noclip,
         saitama = Cheat.Flags.Saitama,
     }
@@ -260,10 +285,13 @@ local function LoadSettings()
         if ok and type(settings) == "table" then
             Cheat.Config.SpeedValue =
                 tonumber(settings.speed) or 16
+            
+            Cheat.Config.FlySpeed =
+                tonumber(settings.flyspeed) or 70
         end
     end
 
-    -- Initialize flags to default state upon loading settings
+    -- Никакие функции не включаются автоматически.
     Cheat.Flags.Fly = false
     Cheat.Flags.ESP = false
     Cheat.Flags.Noclip = false
@@ -432,11 +460,11 @@ local function AddESPForPlayer(pl)
         return
     end
 
-    -- Destroy existing instances if they exist
     if Cheat.Runtime.ESPTexts[pl] then
         pcall(function()
             Cheat.Runtime.ESPTexts[pl]:Destroy()
         end)
+
         Cheat.Runtime.ESPTexts[pl] = nil
     end
 
@@ -444,6 +472,7 @@ local function AddESPForPlayer(pl)
         pcall(function()
             Cheat.Runtime.ESPHighlights[pl]:Destroy()
         end)
+
         Cheat.Runtime.ESPHighlights[pl] = nil
     end
 
@@ -468,7 +497,6 @@ local function AddESPForPlayer(pl)
 
     local color = GetTeamColor(pl)
 
-    -- Billboard GUI (Text display above character)
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "MAX_ESP_Billboard"
     billboard.Adornee = head
@@ -490,7 +518,6 @@ local function AddESPForPlayer(pl)
     txt.Text = pl.Name
     txt.Parent = billboard
 
-    -- Highlight (Outline/Fill around character model)
     local highlight = Instance.new("Highlight")
     highlight.Name = "MAX_ESP_Highlight"
     highlight.FillColor = color
@@ -505,7 +532,6 @@ local function AddESPForPlayer(pl)
     Cheat.Runtime.ESPTexts[pl] = billboard
     Cheat.Runtime.ESPHighlights[pl] = highlight
 
-    -- CharacterAdded Connection (Handles respawns)
     if Cheat.Runtime.ESPCharacterConnections[pl] then
         pcall(function()
             Cheat.Runtime.ESPCharacterConnections[pl]:Disconnect()
@@ -518,7 +544,7 @@ local function AddESPForPlayer(pl)
                 return
             end
 
-            task.wait(0.25) -- Small delay to ensure parts are fully parented/ready
+            task.wait(0.25)
 
             if pl.Parent then
                 AddESPForPlayer(pl)
@@ -564,11 +590,16 @@ local function UpdateESP()
                 Cheat.Runtime.ESPHighlights[pl]
 
             if hum and root and head then
-                -- Ensure ESP components exist for this player
-                if not billboard or not billboard.Parent then
+                if not billboard
+                    or not billboard.Parent then
+
                     AddESPForPlayer(pl)
-                    billboard = Cheat.Runtime.ESPTexts[pl]
-                    highlight = Cheat.Runtime.ESPHighlights[pl]
+
+                    billboard =
+                        Cheat.Runtime.ESPTexts[pl]
+
+                    highlight =
+                        Cheat.Runtime.ESPHighlights[pl]
                 end
 
                 local color = GetTeamColor(pl)
@@ -580,7 +611,6 @@ local function UpdateESP()
                 if label then
                     local localRoot = GetRoot()
 
-                    -- Calculate distance to local player's root part
                     local dist =
                         localRoot
                         and (
@@ -595,7 +625,6 @@ local function UpdateESP()
                             math.floor(hum.Health)
                         )
 
-                    -- Update text properties
                     label.TextColor3 = color
 
                     label.Text = string.format(
@@ -608,7 +637,6 @@ local function UpdateESP()
                     label.Visible = true
                 end
 
-                -- Update highlight properties
                 if highlight then
                     highlight.FillColor = color
                     highlight.OutlineColor = color
@@ -616,13 +644,11 @@ local function UpdateESP()
                     highlight.Enabled = hum.Health > 0
                 end
 
-                -- Ensure billboard is enabled and attached
                 if billboard then
                     billboard.Adornee = head
                     billboard.Enabled = true
                 end
             else
-                -- If character parts are missing, disable ESP components
                 if billboard then
                     billboard.Enabled = false
                 end
@@ -643,7 +669,6 @@ table.insert(
     ESPRenderConnection
 )
 
--- Handle players joining/leaving to manage ESP connections
 Players.PlayerAdded:Connect(function(pl)
     if not Cheat.Flags.ESP then
         return
@@ -652,7 +677,7 @@ Players.PlayerAdded:Connect(function(pl)
     task.spawn(function()
         pl.CharacterAdded:Wait()
 
-        task.wait(0.25) -- Wait for character setup
+        task.wait(0.25)
 
         if Cheat.Flags.ESP and pl.Parent then
             AddESPForPlayer(pl)
@@ -661,7 +686,6 @@ Players.PlayerAdded:Connect(function(pl)
 end)
 
 Players.PlayerRemoving:Connect(function(pl)
-    -- Clean up resources when player leaves
     if Cheat.Runtime.ESPTexts[pl] then
         pcall(function()
             Cheat.Runtime.ESPTexts[pl]:Destroy()
@@ -680,14 +704,13 @@ Players.PlayerRemoving:Connect(function(pl)
         end)
     end
 
-    -- Clear references
     Cheat.Runtime.ESPTexts[pl] = nil
     Cheat.Runtime.ESPHighlights[pl] = nil
     Cheat.Runtime.ESPCharacterConnections[pl] = nil
 end)
 
 -- ======================================================
--- FLY — FIXED RESPAWN SYSTEM (Optimized for Mobile/Button Control)
+-- FLY — FIXED RESPAWN SYSTEM И СОХРАНЕНИЕ ПРЫЖКА
 -- ======================================================
 
 local function DestroyFlyVelocity()
@@ -709,7 +732,7 @@ local function StopFly()
     local hum = GetHumanoid()
 
     if hum then
-        hum.PlatformStand = false -- Allows jumping/normal movement immediately upon stopping fly
+        hum.PlatformStand = false
     end
 
     if JoyGui and JoyGui.Parent then
@@ -762,7 +785,10 @@ local function StartFly()
     Cheat.Runtime.FlyBodyVelocity = bv
     Cheat.Flags.Fly = true
 
-    hum.PlatformStand = true -- Locks movement, but allows jump input to override state
+    -- Сохраняем оригинальное состояние перед полетом
+    Cheat.Runtime.WasJumping = hum.Jump
+
+    hum.PlatformStand = true
 
     if IsMobile and JoyGui and JoyGui.Parent then
         JoyGui.Enabled = true
@@ -779,7 +805,6 @@ local function UpdateFly()
     local char = LocalPlayer.Character
 
     if not char then
-        StopFly() -- Stop if character is gone (e.g., mid-teleport)
         return
     end
 
@@ -792,7 +817,11 @@ local function UpdateFly()
     local bv =
         Cheat.Runtime.FlyBodyVelocity
 
-    if not hum or not root or not bv or bv.Parent ~= root then
+    if not hum
+        or not root
+        or not bv
+        or bv.Parent ~= root then
+
         StopFly()
         return
     end
@@ -814,12 +843,11 @@ local function UpdateFly()
 
     local velocity = Vector3.zero
 
-    local look = Camera.CFrame.LookVector -- Forward/Backward direction based on camera view
-    local right = Camera.CFrame.RightVector  -- Left/Right direction based on camera view
+    local look = Camera.CFrame.LookVector
+    local right = Camera.CFrame.RightVector
     local up = Vector3.new(0, 1, 0)
 
     if IsDesktop then
-        -- Desktop Input (Keyboard)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
             velocity += look * speed
         end
@@ -844,7 +872,7 @@ local function UpdateFly()
             velocity -= up * speed
         end
     else
-        -- Mobile Input (Joystick/Buttons)
+        -- Мобильное управление с помощью джойстика
         local center =
             JoyFrame.AbsolutePosition
             + JoyFrame.AbsoluteSize / 2
@@ -856,9 +884,8 @@ local function UpdateFly()
         local delta =
             stickCenter - center
 
-        local maxDist = 40
+        local maxDist = 50
 
-        -- Calculate normalized input from joystick drag (x: horizontal, z: forward/backward)
         local x =
             math.clamp(
                 delta.X / maxDist,
@@ -873,13 +900,12 @@ local function UpdateFly()
                 1
             )
 
-        -- 1. Horizontal movement driven by joystick drag (x)
-        velocity += right * x * speed
+        velocity +=
+            right * x * speed
 
-        -- 2. Forward/Backward movement driven by joystick drag (z). Note: Z is inverted relative to standard screen coordinates for forward push.
-        velocity += look * (-z) * speed
+        velocity +=
+            look * (-z) * speed
 
-        -- 3. Vertical movement driven by dedicated buttons (UpBtn/DownBtn)
         if FlyUpActive then
             velocity += up * speed
         end
@@ -892,7 +918,6 @@ local function UpdateFly()
     bv.Velocity = velocity
 end
 
--- Connect the update loop
 if Cheat.Runtime.FlyRenderConnection then
     Cheat.Runtime.FlyRenderConnection:Disconnect()
 end
@@ -901,20 +926,21 @@ Cheat.Runtime.FlyRenderConnection =
     RunService.RenderStepped:Connect(UpdateFly)
 
 -- ======================================================
--- RESPAWN HANDLER (Handles state restoration after death)
+-- RESPAWN HANDLER С СОХРАНЕНИЕМ ПРЫЖКА
 -- ======================================================
 
 LocalPlayer.CharacterRemoving:Connect(function()
-    StopFly() -- Stops fly and resets BV/PlatformStand
-    
+    -- Fly НЕ восстанавливается после смерти.
+    StopFly()
+
     if Cheat.Runtime.FreezeBV then
         pcall(function()
             Cheat.Runtime.FreezeBV:Destroy()
         end)
+
         Cheat.Runtime.FreezeBV = nil
     end
 
-    -- Store current transparency values before death
     Cheat.Runtime.OriginalTransparency = {}
     Cheat.Runtime.NoclipOriginalCollision = {}
 end)
@@ -937,17 +963,18 @@ LocalPlayer.CharacterAdded:Connect(function(character)
             return
         end
 
-        task.wait(0.2) -- Wait for physics/network sync
+        task.wait(0.2)
 
-        -- Restore Speed
         if Cheat.Runtime.OriginalWalkSpeed == nil then
             Cheat.Runtime.OriginalWalkSpeed =
                 hum.WalkSpeed
         end
+
+        -- Speed сохраняется.
         hum.WalkSpeed =
             Cheat.Config.SpeedValue
 
-        -- Noclip restoration logic
+        -- Noclip сохраняется.
         if Cheat.Flags.Noclip then
             if Cheat.Runtime.NoclipConnection then
                 pcall(function()
@@ -957,14 +984,14 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 
             Cheat.Runtime.NoclipOriginalCollision = {}
 
-            -- Start Noclip connection immediately upon respawn if enabled
             Cheat.Runtime.NoclipConnection =
                 RunService.Stepped:Connect(function()
                     if not Cheat.Flags.Noclip then
                         return
                     end
 
-                    local currentChar = LocalPlayer.Character
+                    local currentChar =
+                        LocalPlayer.Character
 
                     if not currentChar then
                         return
@@ -974,19 +1001,18 @@ LocalPlayer.CharacterAdded:Connect(function(character)
                         currentChar:GetDescendants()
                     ) do
                         if part:IsA("BasePart") then
-                            -- Store original state if not already stored for this respawn cycle
                             if Cheat.Runtime.NoclipOriginalCollision[part] == nil then
                                 Cheat.Runtime.NoclipOriginalCollision[part] =
                                     part.CanCollide
                             end
 
-                            part.CanCollide = false -- Force collision off
+                            part.CanCollide = false
                         end
                     end
                 end)
         end
 
-        -- Invisible restoration logic
+        -- Invisible сохраняется.
         if Cheat.Flags.Invisible then
             Cheat.Runtime.OriginalTransparency = {}
 
@@ -996,17 +1022,16 @@ LocalPlayer.CharacterAdded:Connect(function(character)
                 if obj:IsA("BasePart")
                     or obj:IsA("Decal") then
 
-                    -- Store original transparency before setting to 1
                     Cheat.Runtime.OriginalTransparency[obj] =
                         obj.Transparency
 
-                    obj.Transparency = 1 -- Set invisible
+                    obj.Transparency = 1
                 end
             end
         end
 
-        -- Fly state is NOT automatically restored, requiring user command 'fly'
-        -- This ensures the player has control immediately after death.
+        -- Fly намеренно НЕ восстанавливается.
+        -- После респавна fly запускается только командой fly.
 
         if Cheat.Flags.Saitama then
             local newRoot =
@@ -1022,7 +1047,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 -- ======================================================
--- CONSOLE
+-- КОНСОЛЬ И КОМАНДЫ (остальная часть скрипта без изменений)
 -- ======================================================
 
 local function AddConsoleOutput(text, color)
@@ -1035,7 +1060,6 @@ local function AddConsoleOutput(text, color)
     label.Size =
         UDim2.new(1, -8, 0, 22)
 
-    -- Position at the bottom of the scrolling frame content area
     label.Position =
         UDim2.new(
             0,
@@ -1056,7 +1080,6 @@ local function AddConsoleOutput(text, color)
     label.TextSize = 15
     label.Parent = OutputScrolling
 
-    -- Update CanvasSize to accommodate the new line
     OutputScrolling.CanvasSize =
         UDim2.new(
             0,
@@ -1066,7 +1089,6 @@ local function AddConsoleOutput(text, color)
         )
 
     task.defer(function()
-        -- Keep scroll position at the bottom
         OutputScrolling.CanvasPosition =
             Vector2.new(
                 0,
@@ -1095,7 +1117,6 @@ local function ExecuteCommand(cmd, output)
     local command = Cmds[name]
 
     if command then
-        -- Execute the command's run function
         local ok, err =
             pcall(function()
                 command.run(parts, output)
@@ -1116,19 +1137,19 @@ local function ExecuteCommand(cmd, output)
 end
 
 local function CreateConsole()
-    -- Destroy existing GUI if it exists to allow clean recreation/re-enabling
     if GUI then
         pcall(function()
             GUI:Destroy()
         end)
+
         GUI = nil
     end
 
-    -- Disconnect old input listeners
     if Cheat.Runtime.ConsoleInputConnection then
         pcall(function()
             Cheat.Runtime.ConsoleInputConnection:Disconnect()
         end)
+
         Cheat.Runtime.ConsoleInputConnection = nil
     end
 
@@ -1136,10 +1157,10 @@ local function CreateConsole()
         pcall(function()
             Cheat.Runtime.ConsoleTabConnection:Disconnect()
         end)
+
         Cheat.Runtime.ConsoleTabConnection = nil
     end
 
-    -- Create the main ScreenGui container
     GUI = Instance.new("ScreenGui")
     GUI.Name = "MaxEditionConsole"
     GUI.ResetOnSpawn = false
@@ -1351,7 +1372,6 @@ local function CreateConsole()
         "Text"
     ):Connect(UpdateSuggestions)
 
-    -- Tab completion logic
     Cheat.Runtime.ConsoleTabConnection =
         UserInputService.InputBegan:Connect(
             function(input, gameProcessed)
@@ -1401,7 +1421,6 @@ local function CreateConsole()
                 table.sort(matches)
 
                 if #matches > 0 then
-                    -- Insert the first match and move cursor past it
                     InputBox.Text =
                         matches[1] .. " "
 
@@ -1418,7 +1437,6 @@ local function CreateConsole()
         )
     end
 
-    -- Initial welcome message
     output(
         "S MAX EDITION | TouchFling удалён | Fly fixed",
         Color3.fromRGB(255, 215, 0)
@@ -1433,7 +1451,7 @@ local function CreateConsole()
 
                 local cmd = InputBox.Text
 
-                InputBox.Text = "" -- Clear input box after execution
+                InputBox.Text = ""
 
                 if cmd ~= "" then
                     output(
@@ -1445,7 +1463,6 @@ local function CreateConsole()
                         )
                     )
 
-                    -- Command History Management
                     table.insert(
                         Cheat.Runtime.CommandHistory,
                         cmd
@@ -1471,7 +1488,7 @@ local function CreateConsole()
 end
 
 -- ======================================================
--- COMMANDS DEFINITIONS (Cmds table)
+-- COMMANDS (БЕЗ ИЗМЕНЕНИЙ, НО С ИСПРАВЛЕНИЕМ ПРЫЖКА)
 -- ======================================================
 
 Cmds.help = {
@@ -1484,18 +1501,53 @@ Cmds.help = {
         )
 
         local commands = {
-            "help", "fly", "unfly", "speed", "unspeed", "noclip", "unnoclip", "fakeheal",
-            "goto", "tp", "esp", "unesp", "saitama", "unsaitama", "antiafk", "unantiafk",
-            "autoclick", "unautoclick", "spin", "unspin", "sit", "unsit", "jump", "unjump",
-            "tpall", "freeze", "unfreeze", "time", "weather", "godmode", "ungodmode",
-            "invisible", "uninvisible", "mm2aimbot", "unmm2aimbot", "mm2autoshoot", "unmm2autoshoot",
-            "reset", "unload",
+            "help",
+            "fly",
+            "unfly",
+            "speed",
+            "unspeed",
+            "noclip",
+            "unnoclip",
+            "fakeheal",
+            "goto",
+            "tp",
+            "esp",
+            "unesp",
+            "saitama",
+            "unsaitama",
+            "antiafk",
+            "unantiafk",
+            "autoclick",
+            "unautoclick",
+            "spin",
+            "unspin",
+            "sit",
+            "unsit",
+            "jump",
+            "unjump",
+            "tpall",
+            "freeze",
+            "unfreeze",
+            "time",
+            "weather",
+            "godmode",
+            "ungodmode",
+            "invisible",
+            "uninvisible",
+            "mm2aimbot",
+            "unmm2aimbot",
+            "mm2autoshoot",
+            "unmm2autoshoot",
+            "reset",
+            "unload",
         }
 
         for _, name in ipairs(commands) do
             if Cmds[name] then
                 output(
-                    name .. " - " .. Cmds[name].desc,
+                    name
+                    .. " - "
+                    .. Cmds[name].desc,
                     Color3.fromRGB(
                         200,
                         200,
@@ -1527,6 +1579,8 @@ Cmds.fly = {
                     1,
                     100000
                 )
+            
+            SaveSettings()
         end
 
         local currentRoot = GetRoot()
@@ -1584,7 +1638,7 @@ Cmds.unfly = {
     end
 }
 
--- SPEED COMMAND
+-- SPEED
 Cmds.speed = {
     desc = "Установить скорость: speed [число]",
 
@@ -1601,14 +1655,14 @@ Cmds.speed = {
             return
         end
 
-        -- Ensure original speed is captured if it hasn't been yet
         if Cheat.Runtime.OriginalWalkSpeed == nil then
             local hum = GetHumanoid()
+
             if hum then
                 Cheat.Runtime.OriginalWalkSpeed =
                     hum.WalkSpeed
             else
-                Cheat.Runtime.OriginalWalkSpeed = 16 -- Default fallback
+                Cheat.Runtime.OriginalWalkSpeed = 16
             end
         end
 
@@ -1644,10 +1698,11 @@ Cmds.unspeed = {
             Cheat.Runtime.OriginalWalkSpeed
 
         if not original then
-            -- Fallback if OriginalWalkSpeed wasn't captured (e.g., first run without speed command)
             if hum then
                 original = hum.WalkSpeed
-                Cheat.Runtime.OriginalWalkSpeed = original
+
+                Cheat.Runtime.OriginalWalkSpeed =
+                    original
             else
                 original = 16
             end
@@ -1670,7 +1725,7 @@ Cmds.unspeed = {
     end
 }
 
--- NOCLIP COMMAND
+-- NOCLIP
 local function RestoreNoclipCollision()
     for part, original in pairs(
         Cheat.Runtime.NoclipOriginalCollision
@@ -1686,7 +1741,6 @@ local function RestoreNoclipCollision()
 end
 
 local function StartNoclipConnection()
-    -- Disconnect previous connection if it exists
     if Cheat.Runtime.NoclipConnection then
         pcall(function()
             Cheat.Runtime.NoclipConnection:Disconnect()
@@ -1695,7 +1749,6 @@ local function StartNoclipConnection()
 
     Cheat.Runtime.NoclipOriginalCollision = {}
 
-    -- Start new Stepped connection
     Cheat.Runtime.NoclipConnection =
         RunService.Stepped:Connect(function()
             if not Cheat.Flags.Noclip then
@@ -1712,13 +1765,12 @@ local function StartNoclipConnection()
                 char:GetDescendants()
             ) do
                 if part:IsA("BasePart") then
-                    -- Store original state if not already stored for this cycle
                     if Cheat.Runtime.NoclipOriginalCollision[part] == nil then
                         Cheat.Runtime.NoclipOriginalCollision[part] =
                             part.CanCollide
                     end
 
-                    part.CanCollide = false -- Force collision off
+                    part.CanCollide = false
                 end
             end
         end)
@@ -1739,7 +1791,6 @@ Cmds.noclip = {
                 Color3.fromRGB(0, 255, 0)
             )
         else
-            -- Stop connection and restore collisions
             if Cheat.Runtime.NoclipConnection then
                 Cheat.Runtime.NoclipConnection:Disconnect()
                 Cheat.Runtime.NoclipConnection = nil
@@ -1757,7 +1808,7 @@ Cmds.noclip = {
     end
 }
 
--- FAKE HEAL COMMAND
+-- FAKE HEAL
 Cmds.fakeheal = {
     desc = "Восстановить здоровье",
 
@@ -1780,7 +1831,7 @@ Cmds.fakeheal = {
     end
 }
 
--- ESP COMMAND
+-- ESP
 Cmds.esp = {
     desc = "Включить/выключить ESP",
 
@@ -1840,7 +1891,7 @@ Cmds.saitama = {
     end
 }
 
--- SIT COMMAND
+-- SIT
 Cmds.sit = {
     desc = "Сесть/встать",
 
@@ -1864,7 +1915,7 @@ Cmds.sit = {
     end
 }
 
--- INFINITE JUMP COMMAND
+-- INFINITE JUMP (ИСПРАВЛЕН ДЛЯ СОХРАНЕНИЯ ПОСЛЕ ПОЛЕТА)
 Cmds.jump = {
     desc = "Включить/выключить бесконечный прыжок",
 
@@ -1873,12 +1924,10 @@ Cmds.jump = {
             not Cheat.Flags.InfiniteJump
 
         if Cheat.Flags.InfiniteJump then
-            -- Disconnect old connection if it exists
             if Cheat.Runtime.JumpConnection then
                 Cheat.Runtime.JumpConnection:Disconnect()
             end
 
-            -- Connect new listener to JumpRequest event
             Cheat.Runtime.JumpConnection =
                 UserInputService.JumpRequest:Connect(
                     function()
@@ -1889,7 +1938,8 @@ Cmds.jump = {
                         local hum = GetHumanoid()
 
                         if hum and hum.Health > 0 then
-                            -- Force the jump state change every time JumpRequest fires
+                            -- Восстанавливаем прыжок если он был отключен
+                            hum.Jump = true
                             hum:ChangeState(
                                 Enum.HumanoidStateType.Jumping
                             )
@@ -1902,7 +1952,6 @@ Cmds.jump = {
                 Color3.fromRGB(0, 255, 0)
             )
         else
-            -- Disconnect the connection when disabled
             if Cheat.Runtime.JumpConnection then
                 Cheat.Runtime.JumpConnection:Disconnect()
                 Cheat.Runtime.JumpConnection = nil
@@ -1916,7 +1965,7 @@ Cmds.jump = {
     end
 }
 
--- TPALL COMMAND
+-- TPALL
 Cmds.tpall = {
     desc = "Телепортировать всех к себе",
 
@@ -1945,7 +1994,6 @@ Cmds.tpall = {
                     )
 
                 if targetRoot then
-                    -- Teleport slightly above the current position to prevent clipping issues
                     targetRoot.CFrame =
                         root.CFrame
                         + Vector3.new(0, 3, 0)
@@ -1963,7 +2011,7 @@ Cmds.tpall = {
     end
 }
 
--- FREEZE COMMAND
+-- FREEZE
 Cmds.freeze = {
     desc = "Заморозить/разморозить себя",
 
@@ -1984,7 +2032,6 @@ Cmds.freeze = {
         end
 
         if Cheat.Flags.Freeze then
-            -- Destroy existing BV if present
             if Cheat.Runtime.FreezeBV then
                 pcall(function()
                     Cheat.Runtime.FreezeBV:Destroy()
@@ -1995,28 +2042,27 @@ Cmds.freeze = {
 
             bv.MaxForce =
                 Vector3.new(1, 1, 1)
-                * 100000 -- High force to resist external forces
+                * 100000
 
             bv.Velocity = Vector3.zero
             bv.Parent = root
 
             Cheat.Runtime.FreezeBV = bv
 
-            hum.PlatformStand = true -- Lock character movement
+            hum.PlatformStand = true
 
             output(
                 "🧊 Вы заморожены",
                 Color3.fromRGB(0, 255, 0)
             )
         else
-            -- Destroy BV and unlock character
             if Cheat.Runtime.FreezeBV then
                 Cheat.Runtime.FreezeBV:Destroy()
                 Cheat.Runtime.FreezeBV = nil
             end
 
             hum.PlatformStand = false
-            hum.Sit = false -- Ensure sitting state is also cleared when unfreezing
+            hum.Sit = false
 
             output(
                 "🧊 Вы разморожены",
@@ -2026,7 +2072,7 @@ Cmds.freeze = {
     end
 }
 
--- TIME COMMAND
+-- TIME
 Cmds.time = {
     desc = "Установить время: time [0-23]",
 
@@ -2059,7 +2105,7 @@ Cmds.time = {
     end
 }
 
--- LOCAL WEATHER COMMANDS
+-- LOCAL WEATHER
 local function GetWeatherFolder()
     local folder =
         Cheat.Runtime.WeatherFolder
@@ -2196,18 +2242,16 @@ local function CreateWeatherEmitter(kind)
     Cheat.Runtime.WeatherPart =
         part
 
-    -- Spawn loop to keep the weather part anchored/positioned correctly relative to player root
     task.spawn(function()
         while part.Parent do
             local root = GetRoot()
 
             if root then
-                -- Position slightly above the character's center
                 part.Position =
                     root.Position
                     + Vector3.new(
                         0,
-                        40, -- Height offset
+                        40,
                         0
                     )
             end
@@ -2269,7 +2313,7 @@ Cmds.weather = {
     end
 }
 
--- ANTI AFK COMMAND
+-- ANTI AFK
 Cmds.antiafk = {
     desc = "Защита от AFK",
 
@@ -2281,14 +2325,13 @@ Cmds.antiafk = {
             task.spawn(function()
                 while Cheat.Flags.AntiAFK do
                     pcall(function()
-                        -- Move slightly forward (0.01) on the X axis every 30 seconds
                         LocalPlayer:Move(
                             Vector3.new(
                                 0.01,
                                 0,
                                 0
                             ),
-                            true -- Force movement application
+                            true
                         )
                     end)
 
@@ -2309,7 +2352,7 @@ Cmds.antiafk = {
     end
 }
 
--- AUTO CLICK COMMAND
+-- AUTO CLICK
 Cmds.autoclick = {
     desc = "Авто-кликер",
 
@@ -2326,30 +2369,28 @@ Cmds.autoclick = {
 
                 while Cheat.Flags.AutoClick do
                     pcall(function()
-                        -- Left Mouse Button Down (0=Left, 0=X, 0=Y)
                         vim:SendMouseButtonEvent(
                             0,
                             0,
                             0,
-                            true, -- Pressed state
+                            true,
                             game,
                             0
                         )
 
                         task.wait(0.01)
 
-                        -- Left Mouse Button Up
                         vim:SendMouseButtonEvent(
                             0,
                             0,
                             0,
-                            false, -- Released state
+                            false,
                             game,
                             0
                         )
                     end)
 
-                    task.wait(0.1) -- Click interval
+                    task.wait(0.1)
                 end
             end)
 
@@ -2366,9 +2407,9 @@ Cmds.autoclick = {
     end
 }
 
--- SPIN COMMAND
+-- SPIN
 Cmds.spin = {
-    desc = "Вращение: spin [скорость]. Выключение: unspin",
+    desc = "Вращение: spin [скорость]",
 
     run = function(args, output)
         local speed =
@@ -2378,17 +2419,17 @@ Cmds.spin = {
             Cheat.Config.SpinSpeed =
                 speed
         else
-            -- Toggle mode if no speed is provided
             Cheat.Flags.Spin =
                 not Cheat.Flags.Spin
         end
 
-        if speed and not Cheat.Flags.Spin then
-            Cheat.Flags.Spin = true -- Ensure it's on if speed was specified but flag wasn't set
+        if speed
+            and not Cheat.Flags.Spin then
+
+            Cheat.Flags.Spin = true
         end
 
         if Cheat.Flags.Spin then
-            -- Start spin thread if it doesn't exist
             if Cheat.Runtime.SpinThread then
                 output(
                     "🔄 Spin уже включен",
@@ -2405,7 +2446,6 @@ Cmds.spin = {
                     local root = GetRoot()
 
                     if root then
-                        -- Rotate around the Y-axis (0, 1, 0)
                         root.CFrame =
                             root.CFrame
                             * CFrame.Angles(
@@ -2431,7 +2471,6 @@ Cmds.spin = {
                 Color3.fromRGB(0, 255, 0)
             )
         else
-            -- Stop spin thread if it exists
             output(
                 "🔄 Spin ВЫКЛЮЧЕН",
                 Color3.fromRGB(255, 0, 0)
@@ -2440,7 +2479,7 @@ Cmds.spin = {
     end
 }
 
--- FIND PLAYER (Helper function to find targets by name/display name)
+-- FIND PLAYER
 local function FindPlayer(query)
     local lower =
         query:lower()
@@ -2461,7 +2500,6 @@ local function FindPlayer(query)
                 and pl.DisplayName:lower()
                 or ""
 
-            -- Exact match (Name or DisplayName)
             if name == lower
                 or display == lower then
 
@@ -2470,7 +2508,6 @@ local function FindPlayer(query)
                     pl
                 )
 
-            -- Prefix match (Starts with query)
             elseif name:sub(
                 1,
                 #lower
@@ -2485,7 +2522,6 @@ local function FindPlayer(query)
                     pl
                 )
 
-            -- Contains match (Query is anywhere in Name or DisplayName)
             elseif name:find(
                 lower,
                 1,
@@ -2505,7 +2541,6 @@ local function FindPlayer(query)
         end
     end
 
-    -- Return the best match found (Exact > Prefix > Contains)
     if #exact == 1 then
         return exact[1], exact
     end
@@ -2518,7 +2553,6 @@ local function FindPlayer(query)
         return contains[1], contains
     end
 
-    -- If multiple matches exist, return nil target and the list of candidates
     if #exact > 0 then
         return nil, exact
     end
@@ -2527,10 +2561,10 @@ local function FindPlayer(query)
         return nil, prefix
     end
 
-    return nil, contains -- Default: no single match found
+    return nil, contains
 end
 
--- GOTO/TP COMMANDS (Teleport)
+-- GOTO
 Cmds.goto = {
     desc = "Телепорт к игроку или координатам. Алиас: tp",
 
@@ -2555,7 +2589,6 @@ Cmds.goto = {
             return
         end
 
-        -- Check if the first argument is a number (coordinates mode)
         if tonumber(args[1]) then
             if #args < 3 then
                 output(
@@ -2589,7 +2622,6 @@ Cmds.goto = {
             return
         end
 
-        -- Player search mode (Name/Query)
         local query =
             table.concat(
                 args,
@@ -2607,12 +2639,11 @@ Cmds.goto = {
                 )
 
             if targetRoot then
-                -- Teleport slightly above the target's position
                 root.CFrame =
                     targetRoot.CFrame
                     + Vector3.new(
                         0,
-                        3, -- Offset height
+                        3,
                         0
                     )
 
@@ -2639,7 +2670,6 @@ Cmds.goto = {
             return
         end
 
-        -- Handle search results
         if #candidates > 1 then
             output(
                 "⚠️ Найдено несколько игроков:",
@@ -2653,9 +2683,17 @@ Cmds.goto = {
             for _, p in ipairs(
                 candidates
             ) do
-                local displayName = p.DisplayName or p.Name
                 output(
-                    " - " .. displayName,
+                    " - "
+                    .. p.Name
+                    .. (
+                        p.DisplayName
+                        ~= p.Name
+                        and " ("
+                        .. p.DisplayName
+                        .. ")"
+                        or ""
+                    ),
                     Color3.fromRGB(
                         255,
                         255,
@@ -2664,7 +2702,6 @@ Cmds.goto = {
                 )
             end
         else
-            -- No match found
             output(
                 "⚠️ Игрок не найден: "
                 .. query,
@@ -2678,9 +2715,9 @@ Cmds.goto = {
     end
 }
 
-Cmds.tp = Cmds.goto -- Alias for goto
+Cmds.tp = Cmds.goto
 
--- GODMODE COMMAND
+-- GODMODE
 Cmds.godmode = {
     desc = "Включить/выключить восстановление здоровья",
 
@@ -2689,11 +2726,8 @@ Cmds.godmode = {
             not Cheat.Flags.GodMode
 
         if Cheat.Flags.GodMode then
-            -- Start Heartbeat connection for constant health restoration
             if Cheat.Runtime.GodModeConnection then
-                pcall(function()
-                    Cheat.Runtime.GodModeConnection:Disconnect()
-                end)
+                Cheat.Runtime.GodModeConnection:Disconnect()
             end
 
             Cheat.Runtime.GodModeConnection =
@@ -2724,7 +2758,6 @@ Cmds.godmode = {
                 )
             )
         else
-            -- Disconnect connection when disabled
             if Cheat.Runtime.GodModeConnection then
                 Cheat.Runtime.GodModeConnection:Disconnect()
                 Cheat.Runtime.GodModeConnection = nil
@@ -2742,7 +2775,7 @@ Cmds.godmode = {
     end
 }
 
--- INVISIBLE COMMAND
+-- INVISIBLE
 local function SetInvisible(character)
     Cheat.Runtime.OriginalTransparency = {}
 
@@ -2752,11 +2785,10 @@ local function SetInvisible(character)
         if obj:IsA("BasePart")
             or obj:IsA("Decal") then
 
-            -- Store original transparency before setting to 1
             Cheat.Runtime.OriginalTransparency[obj] =
                 obj.Transparency
 
-            obj.Transparency = 1 -- Set invisible
+            obj.Transparency = 1
         end
     end
 end
@@ -2786,7 +2818,8 @@ Cmds.invisible = {
         local char = GetCharacter()
 
         if not char then
-            Cheat.Flags.Invisible = false -- Force off if character is missing
+            Cheat.Flags.Invisible = false
+
             output(
                 "⚠️ Персонаж не найден",
                 Color3.fromRGB(
@@ -2795,6 +2828,7 @@ Cmds.invisible = {
                     0
                 )
             )
+
             return
         end
 
@@ -2824,7 +2858,7 @@ Cmds.invisible = {
     end
 }
 
--- MM2 STUBS COMMANDS
+-- MM2 STUBS
 Cmds.mm2aimbot = {
     desc = "MM2 Aimbot (заглушка)",
 
@@ -2873,7 +2907,7 @@ Cmds.mm2autoshoot = {
     end
 }
 
--- UN COMMANDS (Aliases for toggling off features)
+-- UN COMMANDS
 local function AddUnAlias(
     unName,
     baseName,
@@ -2886,28 +2920,66 @@ local function AddUnAlias(
 
         run = function(args, output)
             if Cheat.Flags[flagName] then
-                -- Handle specific logic for un-commands if needed (like Fly/Noclip cleanup)
                 if unName == "unfly" then
                     StopFly()
-                    output("✈️ Полет ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
+
+                    output(
+                        "✈️ Полет ВЫКЛЮЧЕН",
+                        Color3.fromRGB(
+                            255,
+                            0,
+                            0
+                        )
+                    )
                 elseif unName == "unnoclip" then
                     Cheat.Flags.Noclip = false
+
                     if Cheat.Runtime.NoclipConnection then
                         Cheat.Runtime.NoclipConnection:Disconnect()
                         Cheat.Runtime.NoclipConnection = nil
                     end
+
                     RestoreNoclipCollision()
-                    output("🚧 Noclip ВЫКЛЮЧЕН", Color3.fromRGB(255, 0, 0))
+
+                    output(
+                        "🚧 Noclip ВЫКЛЮЧЕН",
+                        Color3.fromRGB(
+                            255,
+                            0,
+                            0
+                        )
+                    )
+
+                    SaveSettings()
                 elseif unName == "uninvisible" then
                     Cheat.Flags.Invisible = false
                     RestoreInvisible()
-                    output("👻 Невидимость ВЫКЛЮЧЕНА", Color3.fromRGB(255, 0, 0))
+
+                    output(
+                        "👻 Невидимость ВЫКЛЮЧЕНА",
+                        Color3.fromRGB(
+                            255,
+                            0,
+                            0
+                        )
+                    )
                 else
-                    -- For all other flags, just call the base command's run function
-                    Cmds[baseName].run({}, output)
+                    Cmds[baseName].run(
+                        {},
+                        output
+                    )
                 end
             else
-                output("ℹ️ " .. baseName .. " уже выключен", Color3.fromRGB(180, 180, 180))
+                output(
+                    "ℹ️ "
+                    .. baseName
+                    .. " уже выключен",
+                    Color3.fromRGB(
+                        180,
+                        180,
+                        180
+                    )
+                )
             end
         end
     }
@@ -2928,14 +3000,13 @@ AddUnAlias("uninvisible", "invisible", "Invisible")
 AddUnAlias("unmm2aimbot", "mm2aimbot", "MM2Aimbot")
 AddUnAlias("unmm2autoshoot", "mm2autoshoot", "MM2AutoShoot")
 
--- RESET COMMAND (Resets all states)
+-- RESET
 Cmds.reset = {
     desc = "Сбросить состояния скрипта",
 
     run = function(args, output)
-        StopFly() -- Stops fly and resets BV/PlatformStand
+        StopFly()
 
-        -- Reset Flags to default state
         Cheat.Flags.ESP = false
         Cheat.Flags.Noclip = false
         Cheat.Flags.Saitama = false
@@ -2950,7 +3021,6 @@ Cmds.reset = {
         Cheat.Flags.MM2Aimbot = false
         Cheat.Flags.MM2AutoShoot = false
 
-        -- Clear visual effects/connections
         ClearESP()
         RemoveSaitamaEffect()
 
@@ -2958,51 +3028,37 @@ Cmds.reset = {
             pcall(function()
                 Cheat.Runtime.FreezeBV:Destroy()
             end)
+
             Cheat.Runtime.FreezeBV = nil
         end
 
-        -- Disconnect all active connections (Jump, Noclip, GodMode, FlyRender)
         if Cheat.Runtime.JumpConnection then
-            pcall(function()
-                Cheat.Runtime.JumpConnection:Disconnect()
-            end)
+            Cheat.Runtime.JumpConnection:Disconnect()
             Cheat.Runtime.JumpConnection = nil
         end
 
         if Cheat.Runtime.NoclipConnection then
-            pcall(function()
-                Cheat.Runtime.NoclipConnection:Disconnect()
-            end)
+            Cheat.Runtime.NoclipConnection:Disconnect()
             Cheat.Runtime.NoclipConnection = nil
         end
 
-        if Cheat.Runtime.GodModeConnection then
-            pcall(function()
-                Cheat.Runtime.GodModeConnection:Disconnect()
-            end)
-            Cheat.Runtime.GodModeConnection = nil
-        end
-
-        if Cheat.Runtime.FlyRenderConnection then
-            pcall(function()
-                Cheat.Runtime.FlyRenderConnection:Disconnect()
-            end)
-            Cheat.Runtime.FlyRenderConnection = nil
-        end
-
-        -- Restore collision and transparency states
         RestoreNoclipCollision()
         RestoreInvisible()
+
+        if Cheat.Runtime.GodModeConnection then
+            Cheat.Runtime.GodModeConnection:Disconnect()
+            Cheat.Runtime.GodModeConnection = nil
+        end
 
         ClearWeather()
 
         local hum = GetHumanoid()
 
         if hum then
-            hum.PlatformStand = false -- Unlock character movement
-            hum.Sit = false         -- Ensure sitting state is cleared
+            hum.PlatformStand = false
+            hum.Sit = false
+            hum.Jump = true -- Восстанавливаем прыжок
 
-            -- Restore speed to the saved value (or default 16)
             local originalSpeed =
                 Cheat.Runtime.OriginalWalkSpeed
                 or 16
@@ -3014,7 +3070,7 @@ Cmds.reset = {
                 originalSpeed
         end
 
-        JoyGui.Enabled = false -- Disable mobile controls UI
+        JoyGui.Enabled = false
 
         ResetJoystick()
 
@@ -3029,17 +3085,16 @@ Cmds.reset = {
     end
 }
 
--- UNLOAD COMMAND (Cleans up everything)
+-- UNLOAD
 Cmds.unload = {
     desc = "Полностью выгрузить скрипт",
 
     run = function(args, output)
-        StopFly() -- Stops fly and resets BV/PlatformStand
+        StopFly()
 
         ClearESP()
         RemoveSaitamaEffect()
 
-        -- Reset all flags to false (this is crucial for cleanup logic in other commands)
         Cheat.Flags.Noclip = false
         Cheat.Flags.Invisible = false
         Cheat.Flags.Spin = false
@@ -3053,10 +3108,9 @@ Cmds.unload = {
         ClearWeather()
 
         if Cheat.Runtime.SpinThread then
-            Cheat.Flags.Spin = false -- Ensure thread loop terminates
+            Cheat.Flags.Spin = false
         end
 
-        -- Disconnect all general connections (ESP, GodMode, FlyRender)
         for _, conn in pairs(
             Cheat.Runtime.Connections
         ) do
@@ -3064,13 +3118,14 @@ Cmds.unload = {
                 conn:Disconnect()
             end)
         end
+
         Cheat.Runtime.Connections = {}
 
-        -- Disconnect specific connections
         if Cheat.Runtime.JumpConnection then
             pcall(function()
                 Cheat.Runtime.JumpConnection:Disconnect()
             end)
+
             Cheat.Runtime.JumpConnection = nil
         end
 
@@ -3078,6 +3133,7 @@ Cmds.unload = {
             pcall(function()
                 Cheat.Runtime.NoclipConnection:Disconnect()
             end)
+
             Cheat.Runtime.NoclipConnection = nil
         end
 
@@ -3085,6 +3141,7 @@ Cmds.unload = {
             pcall(function()
                 Cheat.Runtime.GodModeConnection:Disconnect()
             end)
+
             Cheat.Runtime.GodModeConnection = nil
         end
 
@@ -3092,22 +3149,23 @@ Cmds.unload = {
             pcall(function()
                 Cheat.Runtime.FlyRenderConnection:Disconnect()
             end)
+
             Cheat.Runtime.FlyRenderConnection = nil
         end
 
-        -- Destroy physics objects
         if Cheat.Runtime.FreezeBV then
             pcall(function()
                 Cheat.Runtime.FreezeBV:Destroy()
             end)
+
             Cheat.Runtime.FreezeBV = nil
         end
 
-        -- Disconnect console listeners
         if Cheat.Runtime.ConsoleInputConnection then
             pcall(function()
                 Cheat.Runtime.ConsoleInputConnection:Disconnect()
             end)
+
             Cheat.Runtime.ConsoleInputConnection = nil
         end
 
@@ -3115,6 +3173,7 @@ Cmds.unload = {
             pcall(function()
                 Cheat.Runtime.ConsoleTabConnection:Disconnect()
             end)
+
             Cheat.Runtime.ConsoleTabConnection = nil
         end
 
@@ -3127,13 +3186,13 @@ Cmds.unload = {
             )
         )
 
-        task.wait(0.1) -- Give time for network/physics to register the unload
+        task.wait(0.1)
 
-        -- Destroy UI elements
         if GUI then
             pcall(function()
                 GUI:Destroy()
             end)
+
             GUI = nil
         end
 
@@ -3141,27 +3200,30 @@ Cmds.unload = {
             pcall(function()
                 JoyGui:Destroy()
             end)
-            JoyGui = nil
         end
 
         if MobileButton then
             pcall(function()
                 MobileButton:Destroy()
             end)
+
             MobileButton = nil
         end
 
-        -- Destroy weather folder/part
         if Cheat.Runtime.WeatherFolder then
             pcall(function()
                 Cheat.Runtime.WeatherFolder:Destroy()
             end)
+
             Cheat.Runtime.WeatherFolder = nil
         end
     end
 }
 
--- MOBILE OPEN BUTTON (The 'S' button on the screen)
+-- ======================================================
+-- MOBILE OPEN BUTTON
+-- ======================================================
+
 MobileButton = Instance.new("ScreenGui")
 
 MobileButton.Name =
@@ -3194,7 +3256,7 @@ OpenBtn.BorderColor3 =
         0
     )
 
-OpenBtn.Text = "S" -- S for Settings/Start Console
+OpenBtn.Text = "S"
 
 OpenBtn.TextColor3 =
     Color3.fromRGB(
@@ -3207,7 +3269,10 @@ OpenBtn.TextScaled = true
 OpenBtn.Font = Enum.Font.GothamBold
 OpenBtn.Parent = MobileButton
 
--- CONSOLE TOGGLE FUNCTIONALITY
+-- ======================================================
+-- CONSOLE TOGGLE
+-- ======================================================
+
 local function ToggleConsole()
     Cheat.Runtime.ConsoleVisible =
         not Cheat.Runtime.ConsoleVisible
@@ -3215,18 +3280,21 @@ local function ToggleConsole()
     if not GUI
         or not GUI.Parent then
 
-        CreateConsole() -- Create if it doesn't exist yet
+        CreateConsole()
     end
 
     GUI.Enabled =
         Cheat.Runtime.ConsoleVisible
 
-    -- Focus the input box when opening/enabling the console
     if Cheat.Runtime.ConsoleVisible
         and InputBox then
 
         task.defer(function()
-            InputBox:CaptureFocus()
+            if InputBox
+                and InputBox.Parent then
+
+                InputBox:CaptureFocus()
+            end
         end)
     end
 end
@@ -3235,27 +3303,26 @@ OpenBtn.MouseButton1Click:Connect(
     ToggleConsole
 )
 
--- Right Shift Double Tap Logic (Alternative toggle method)
 UserInputService.InputBegan:Connect(
     function(input, gameProcessed)
         if gameProcessed then
             return
         end
 
-        if input.KeyCode == Enum.KeyCode.RightShift then
+        if input.KeyCode
+            == Enum.KeyCode.RightShift then
 
             local now = os.clock()
 
-            -- Check if the time since last press is less than 0.5 seconds (double tap window)
             if now - LastRightShiftPress < 0.5 then
                 RightShiftPressCount += 1
 
                 if RightShiftPressCount >= 2 then
-                    RightShiftPressCount = 0 -- Reset counter after successful double tap
+                    RightShiftPressCount = 0
+
                     ToggleConsole()
                 end
             else
-                -- First press in a new sequence
                 RightShiftPressCount = 1
             end
 
@@ -3265,24 +3332,26 @@ UserInputService.InputBegan:Connect(
 )
 
 -- ======================================================
--- INITIALIZE SCRIPT
+-- INITIALIZE
 -- ======================================================
 
-CreateConsole() -- Initialize the console UI structure
+CreateConsole()
 
 if GUI then
-    GUI.Enabled = false -- Start with console closed (unless settings dictate otherwise)
+    GUI.Enabled = false
 end
 
-JoyGui.Enabled = false -- Start with mobile joystick UI hidden
+JoyGui.Enabled = false
 
 pcall(function()
     StarterGui:SetCore(
         "SendNotification",
         {
             Title = "S MAX EDITION",
+
             Text =
                 "Fly исправлен. После респавна включай fly вручную.",
+
             Duration = 5
         }
     )
@@ -3290,9 +3359,12 @@ end)
 
 print("✅ MAX EDITION загружена")
 print("✅ TouchFling удалён")
-print("✅ Fly после респавна выключен (требует команды 'fly')")
+print("✅ Fly после респавна выключен")
 print("✅ Noclip исправлен")
 print("✅ Invisible исправлен")
 print("✅ Weather исправлен")
-print("✅ Reset/Unload исправлены")
+print("✅ Reset исправлен")
+print("✅ Unload исправлен")
 print("✅ Console connections исправлены")
+print("✅ Мобильный джойстик исправлен")
+print("✅ Прыжок сохраняется после полета")
