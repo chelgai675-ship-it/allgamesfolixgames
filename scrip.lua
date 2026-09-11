@@ -1,10 +1,9 @@
 -- ======================================================
--- MAX EDITION & DEEPSEEK ALL GAMES — CLEAN FIX
+-- MAX EDITION & DEEPSEEK ALL GAMES — MOBILE JOYSTICK FIX
 -- ======================================================
--- Мобильный джойстик: используется стандартный джойстик Roblox
--- через UserInputService:GetMoveVector()
--- Вертикальное управление: две маленькие кнопки (вверх/вниз)
--- Прыжок сохраняется после выключения полёта
+-- Мобильное управление полётом: ТОЛЬКО штатный джойстик Roblox.
+-- Наклоняешь джойстик — летишь в сторону взгляда камеры.
+-- Никаких кастомных стрелок вверх/вниз.
 -- ======================================================
 
 if not game:IsLoaded() then
@@ -82,66 +81,6 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 local IsDesktop = UserInputService.KeyboardEnabled
 
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
--- ======================================================
--- МОБИЛЬНЫЕ КНОПКИ ВВЕРХ/ВНИЗ ДЛЯ ПОЛЁТА
--- ======================================================
-
-local FlyButtonsGui = Instance.new("ScreenGui")
-FlyButtonsGui.Name = "FlyVerticalButtons"
-FlyButtonsGui.ResetOnSpawn = false
-FlyButtonsGui.Enabled = false
-FlyButtonsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-FlyButtonsGui.Parent = PlayerGui
-
-local UpBtn = Instance.new("TextButton")
-UpBtn.Size = UDim2.new(0, 50, 0, 50)
-UpBtn.Position = UDim2.new(0.85, 0, 0.75, 0)
-UpBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-UpBtn.BackgroundTransparency = 0.8
-UpBtn.BorderSizePixel = 0
-UpBtn.Text = "▲"
-UpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-UpBtn.TextScaled = true
-UpBtn.Font = Enum.Font.GothamBold
-UpBtn.Parent = FlyButtonsGui
-
-local DownBtn = Instance.new("TextButton")
-DownBtn.Size = UDim2.new(0, 50, 0, 50)
-DownBtn.Position = UDim2.new(0.85, 0, 0.85, 0)
-DownBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-DownBtn.BackgroundTransparency = 0.8
-DownBtn.BorderSizePixel = 0
-DownBtn.Text = "▼"
-DownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DownBtn.TextScaled = true
-DownBtn.Font = Enum.Font.GothamBold
-DownBtn.Parent = FlyButtonsGui
-
-local FlyUpActive = false
-local FlyDownActive = false
-
-UpBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        FlyUpActive = true
-    end
-end)
-UpBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        FlyUpActive = false
-    end
-end)
-
-DownBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        FlyDownActive = true
-    end
-end)
-DownBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        FlyDownActive = false
-    end
-end)
 
 -- ======================================================
 -- SETTINGS
@@ -255,7 +194,7 @@ local function AddSaitamaEffect(part)
 end
 
 -- ======================================================
--- ESP (без изменений)
+-- ESP
 -- ======================================================
 
 local function GetTeamColor(pl)
@@ -421,9 +360,6 @@ local function StopFly()
         hum.PlatformStand = false
         hum.Jump = true
     end
-    if FlyButtonsGui then FlyButtonsGui.Enabled = false end
-    FlyUpActive = false
-    FlyDownActive = false
 end
 
 local function StartFly()
@@ -443,7 +379,6 @@ local function StartFly()
     Cheat.Runtime.FlyBodyVelocity = bv
     Cheat.Flags.Fly = true
     hum.PlatformStand = true
-    if IsMobile and FlyButtonsGui then FlyButtonsGui.Enabled = true end
     return true
 end
 
@@ -472,13 +407,17 @@ local function UpdateFly()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then velocity += up * speed end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then velocity -= up * speed end
     else
-        -- Используем стандартный джойстик Roblox (MoveVector)
-        local moveVector = UserInputService:GetMoveVector()
-        if moveVector.Magnitude > 0.1 then
-            velocity += Camera.CFrame:VectorToWorldSpace(Vector3.new(moveVector.X, 0, moveVector.Y)) * speed
+        -- Мобилка: только штатный джойстик Roblox.
+        -- GetMoveVector(): X = влево/вправо, Z = вперёд/назад (Y обычно 0).
+        local mv = UserInputService:GetMoveVector()
+        local strafe = mv.X
+        local forward = -mv.Z
+        if math.abs(mv.Y) > math.abs(mv.Z) then
+            forward = -mv.Y
         end
-        if FlyUpActive then velocity += up * speed end
-        if FlyDownActive then velocity -= up * speed end
+        if math.abs(strafe) > 0.05 or math.abs(forward) > 0.05 then
+            velocity = velocity + look * forward * speed + right * strafe * speed
+        end
     end
     bv.Velocity = velocity
 end
@@ -539,7 +478,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 -- ======================================================
--- CONSOLE (полный код, как в предыдущих версиях)
+-- CONSOLE
 -- ======================================================
 
 local function AddConsoleOutput(text, color)
@@ -682,7 +621,7 @@ local function CreateConsole()
         end
     end)
     local function output(text, color) AddConsoleOutput(text, color) end
-    output("S MAX EDITION | TouchFling удалён | Fly fixed", Color3.fromRGB(255, 215, 0))
+    output("S MAX EDITION | Mobile Fly: штатный джойстик Roblox", Color3.fromRGB(255, 215, 0))
     Cheat.Runtime.ConsoleInputConnection = InputBox.FocusLost:Connect(function(enterPressed)
         if not enterPressed then return end
         local cmd = InputBox.Text
@@ -698,7 +637,7 @@ local function CreateConsole()
 end
 
 -- ======================================================
--- COMMANDS (все команды, как в исходнике)
+-- COMMANDS
 -- ======================================================
 
 Cmds.help = {
@@ -726,7 +665,7 @@ Cmds.fly = {
         end
         local ok, message = StartFly()
         if not ok then output(message, Color3.fromRGB(255, 255, 0)); return end
-        output("✈️ Полет ВКЛЮЧЕН | скорость: " .. tostring(Cheat.Config.FlySpeed), Color3.fromRGB(0, 255, 0))
+        output("✈️ Полет ВКЛЮЧЕН | скорость: " .. tostring(Cheat.Config.FlySpeed) .. " | управление: джойстик", Color3.fromRGB(0, 255, 0))
     end
 }
 
@@ -1195,7 +1134,6 @@ Cmds.reset = {
             local originalSpeed = Cheat.Runtime.OriginalWalkSpeed or 16
             hum.WalkSpeed = originalSpeed; Cheat.Config.SpeedValue = originalSpeed
         end
-        FlyButtonsGui.Enabled = false
         output("✅ Состояния сброшены. Fly НЕ включён.", Color3.fromRGB(0, 255, 0))
     end
 }
@@ -1221,7 +1159,6 @@ Cmds.unload = {
         output("🛑 Скрипт выгружен", Color3.fromRGB(255, 0, 0))
         task.wait(0.1)
         if GUI then pcall(function() GUI:Destroy() end); GUI = nil end
-        if FlyButtonsGui then pcall(function() FlyButtonsGui:Destroy() end) end
         if MobileButton then pcall(function() MobileButton:Destroy() end); MobileButton = nil end
         if Cheat.Runtime.WeatherFolder then pcall(function() Cheat.Runtime.WeatherFolder:Destroy() end); Cheat.Runtime.WeatherFolder = nil end
     end
@@ -1273,17 +1210,15 @@ end)
 
 CreateConsole()
 if GUI then GUI.Enabled = false end
-FlyButtonsGui.Enabled = false
 
 pcall(function()
     StarterGui:SetCore("SendNotification", {
         Title = "S MAX EDITION",
-        Text = "Fly исправлен. После респавна включай fly вручную.",
+        Text = "Fly: используй штатный джойстик Roblox. После респавна — fly заново.",
         Duration = 5
     })
 end)
 
 print("✅ MAX EDITION загружена")
-print("✅ Мобильный джойстик использует стандартный Roblox")
-print("✅ Вертикальные кнопки для полёта добавлены")
-print("✅ Прыжок сохраняется после полёта")
+print("✅ Мобильный полёт: только штатный джойстик Roblox")
+print("✅ Кастомные кнопки вверх/вниз убраны")
