@@ -1,9 +1,8 @@
 -- ======================================================
--- MAX EDITION & DEEPSEEK ALL GAMES — MOBILE JOYSTICK FIX
+-- MAX EDITION & DEEPSEEK ALL GAMES — MOBILE FLY FIX (ControlModule)
 -- ======================================================
--- Мобильное управление полётом: ТОЛЬКО штатный джойстик Roblox.
--- Наклоняешь джойстик — летишь в сторону взгляда камеры.
--- Никаких кастомных стрелок вверх/вниз.
+-- Мобильный полёт работает через официальный джойстик Roblox
+-- (ControlModule:GetMoveVector — как в Nameless Admin).
 -- ======================================================
 
 if not game:IsLoaded() then
@@ -18,6 +17,8 @@ local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
+
+local ControlModule = nil
 
 local Cheat = {
     Config = {
@@ -48,6 +49,7 @@ local Cheat = {
         ESPHighlights = {},
         ESPCharacterConnections = {},
         FlyBodyVelocity = nil,
+        FlyBodyGyro = nil,
         FreezeBV = nil,
         ConsoleVisible = false,
         CommandHistory = {},
@@ -150,6 +152,27 @@ local function RainbowColor(offset)
     local b = math.sin(offset + 4.188) * 0.5 + 0.5
     return Color3.fromRGB(math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
 end
+
+-- ======================================================
+-- CONTROL MODULE (для чтения джойстика на мобилке)
+-- ======================================================
+
+local function EnsureControlModule()
+    if ControlModule then return ControlModule end
+    local ok, module = pcall(function()
+        return require(LocalPlayer.PlayerScripts:WaitForChild("PlayerModule", 10):WaitForChild("ControlModule", 10))
+    end)
+    if ok and module then
+        ControlModule = module
+    end
+    return ControlModule
+end
+
+task.spawn(function()
+    pcall(function()
+        EnsureControlModule()
+    end)
+end)
 
 -- ======================================================
 -- SAITAMA
@@ -350,6 +373,9 @@ local function DestroyFlyVelocity()
     local bv = Cheat.Runtime.FlyBodyVelocity
     if bv then pcall(function() bv:Destroy() end) end
     Cheat.Runtime.FlyBodyVelocity = nil
+    local bg = Cheat.Runtime.FlyBodyGyro
+    if bg then pcall(function() bg:Destroy() end) end
+    Cheat.Runtime.FlyBodyGyro = nil
 end
 
 local function StopFly()
@@ -369,7 +395,9 @@ local function StartFly()
     local root = char:FindFirstChild("HumanoidRootPart")
     if not hum or not root then return false, "⚠️ Персонаж ещё не загрузился" end
     if hum.Health <= 0 then return false, "⚠️ Персонаж мёртв" end
+
     DestroyFlyVelocity()
+
     local bv = Instance.new("BodyVelocity")
     bv.Name = "MAX_FlyVelocity"
     bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
@@ -377,8 +405,23 @@ local function StartFly()
     bv.Velocity = Vector3.zero
     bv.Parent = root
     Cheat.Runtime.FlyBodyVelocity = bv
+
+    -- Гироскоп стабилизирует тело по камере (как в Nameless Admin)
+    local bg = Instance.new("BodyGyro")
+    bg.Name = "MAX_FlyGyro"
+    bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bg.P = 1000
+    bg.D = 50
+    bg.CFrame = workspace.CurrentCamera.CFrame
+    bg.Parent = root
+    Cheat.Runtime.FlyBodyGyro = bg
+
     Cheat.Flags.Fly = true
     hum.PlatformStand = true
+
+    -- Заранее готовим ControlModule, чтобы джойстик читался сразу
+    EnsureControlModule()
+
     return true
 end
 
@@ -393,6 +436,12 @@ local function UpdateFly()
     if hum.Health <= 0 then StopFly(); return end
     Camera = workspace.CurrentCamera
     if not Camera then return end
+
+    local bg = Cheat.Runtime.FlyBodyGyro
+    if bg and bg.Parent == root then
+        bg.CFrame = Camera.CFrame
+    end
+
     local speed = tonumber(Cheat.Config.FlySpeed) or 70
     local velocity = Vector3.zero
     local look = Camera.CFrame.LookVector
@@ -407,16 +456,19 @@ local function UpdateFly()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then velocity += up * speed end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then velocity -= up * speed end
     else
-        -- Мобилка: только штатный джойстик Roblox.
-        -- GetMoveVector(): X = влево/вправо, Z = вперёд/назад (Y обычно 0).
-        local mv = UserInputService:GetMoveVector()
-        local strafe = mv.X
-        local forward = -mv.Z
-        if math.abs(mv.Y) > math.abs(mv.Z) then
-            forward = -mv.Y
-        end
-        if math.abs(strafe) > 0.05 or math.abs(forward) > 0.05 then
-            velocity = velocity + look * forward * speed + right * strafe * speed
+        -- Мобилка: читаем официальный джойстик через ControlModule
+        -- (работает даже при PlatformStand = true, в отличие от UserInputService:GetMoveVector()).
+        if not ControlModule then EnsureControlModule() end
+        if ControlModule then
+            local ok, mv = pcall(function() return ControlModule:GetMoveVector() end)
+            if ok and mv then
+                -- mv.X = влево/вправо, mv.Z = вперёд/назад
+                local strafe  = mv.X
+                local forward = -mv.Z
+                if math.abs(strafe) > 0.05 or math.abs(forward) > 0.05 then
+                    velocity = velocity + look * forward * speed + right * strafe * speed
+                end
+            end
         end
     end
     bv.Velocity = velocity
@@ -621,7 +673,7 @@ local function CreateConsole()
         end
     end)
     local function output(text, color) AddConsoleOutput(text, color) end
-    output("S MAX EDITION | Mobile Fly: штатный джойстик Roblox", Color3.fromRGB(255, 215, 0))
+    output("S MAX EDITION | Mobile Fly: ControlModule (официальный джойстик)", Color3.fromRGB(255, 215, 0))
     Cheat.Runtime.ConsoleInputConnection = InputBox.FocusLost:Connect(function(enterPressed)
         if not enterPressed then return end
         local cmd = InputBox.Text
@@ -1214,11 +1266,11 @@ if GUI then GUI.Enabled = false end
 pcall(function()
     StarterGui:SetCore("SendNotification", {
         Title = "S MAX EDITION",
-        Text = "Fly: используй штатный джойстик Roblox. После респавна — fly заново.",
+        Text = "Fly: официальный джойстик Roblox (ControlModule). После респавна — fly заново.",
         Duration = 5
     })
 end)
 
 print("✅ MAX EDITION загружена")
-print("✅ Мобильный полёт: только штатный джойстик Roblox")
-print("✅ Кастомные кнопки вверх/вниз убраны")
+print("✅ Мобильный полёт: ControlModule (как в Nameless Admin)")
+print("✅ BodyGyro добавлен для стабилизации")
