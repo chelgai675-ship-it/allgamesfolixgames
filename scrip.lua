@@ -122,22 +122,76 @@ responsiveScale.Scale=0.5 -- safe initial value before the first layout pass
 responsiveScale.Parent=window
 local function updateResponsiveScale()
     local canvas=screenRoot.AbsoluteSize
-    if canvas.X < 1 or canvas.Y < 1 then return end
-    -- Keep the panel comfortably inside the display, including mobile controls.
-    local availableX=math.max(1, canvas.X-50)
-    local availableY=math.max(1, canvas.Y-56)
-    local scale=math.min(1, availableX/850, availableY/580)
-    responsiveScale.Scale=math.max(.1, scale)
+    local camera=Workspace.CurrentCamera
+    local view=camera and camera.ViewportSize or canvas
+    -- Use the smaller valid viewport to handle mobile executor scaling.
+    local w=(canvas.X>50 and canvas.X or view.X)
+    local h=(canvas.Y>50 and canvas.Y or view.Y)
+    if view.X>50 and view.Y>50 then
+        w=math.min(w,view.X); h=math.min(h,view.Y)
+    end
+    if w<50 or h<50 then return end
+    local margin=UIS.TouchEnabled and 20 or 36
+    responsiveScale.Scale=math.clamp(math.min((w-margin)/850,(h-margin)/580),.12,1)
+    window.AnchorPoint=Vector2.new(.5,.5)
+    window.Position=UDim2.fromScale(.5,.5)
 end
 local rootSizeConnection=screenRoot:GetPropertyChangedSignal('AbsoluteSize'):Connect(updateResponsiveScale)
 ui.Destroying:Connect(function() rootSizeConnection:Disconnect() end)
 task.defer(updateResponsiveScale)
+task.delay(.5,updateResponsiveScale)
+if Workspace.CurrentCamera then
+    table.insert(connections,Workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(updateResponsiveScale))
+end
 round(window,12);styleStroke(window,Color3.fromRGB(250,48,164),.03)
-local title=new('TextLabel',{BackgroundTransparency=1,Text='FOLIX ♡  |  Better than the rest.',TextXAlignment=Enum.TextXAlignment.Left,Font=Enum.Font.GothamBold,TextSize=20,TextColor3=blue,Position=UDim2.fromOffset(18,8),Size=UDim2.new(1,-90,0,28)},window)
-local close=new('TextButton',{Text='×',Font=Enum.Font.Gotham,TextSize=24,TextColor3=muted,BackgroundTransparency=1,Position=UDim2.new(1,-40,0,5),Size=UDim2.fromOffset(30,30)},window)
-local hideBtn=new('TextButton',{Text='−',Font=Enum.Font.Gotham,TextSize=21,TextColor3=muted,BackgroundTransparency=1,Position=UDim2.new(1,-75,0,5),Size=UDim2.fromOffset(30,30)},window)
-local side=new('Frame',{BackgroundColor3=Color3.fromRGB(20,8,25),BackgroundTransparency=.22,BorderSizePixel=0,Position=UDim2.fromOffset(12,45),Size=UDim2.fromOffset(172,522)},window);round(side,8)
-local content=new('Frame',{BackgroundTransparency=1,Position=UDim2.fromOffset(195,45),Size=UDim2.fromOffset(634,522)},window)
+local title=new('TextLabel',{BackgroundTransparency=1,Text='',TextXAlignment=Enum.TextXAlignment.Left,Font=Enum.Font.GothamBold,TextSize=20,TextColor3=blue,Position=UDim2.fromOffset(18,8),Size=UDim2.new(1,-90,0,28)},window)
+local close=new('TextButton',{Text='×',Font=Enum.Font.Gotham,TextSize=24,TextColor3=Color3.fromRGB(255,111,216),BackgroundTransparency=1,Position=UDim2.new(1,-40,0,5),Size=UDim2.fromOffset(30,30)},window)
+local hideBtn=new('TextButton',{Text='−',Font=Enum.Font.Gotham,TextSize=21,TextColor3=Color3.fromRGB(255,111,216),BackgroundTransparency=1,Position=UDim2.new(1,-112,0,5),Size=UDim2.fromOffset(30,30)},window)
+-- Three top-right window controls: minimize, maximize/restore, close.
+local maximizeBtn=new('TextButton',{
+    Name='MaximizeRestore',Text='□',Font=Enum.Font.GothamBold,TextSize=23,
+    TextColor3=Color3.fromRGB(255,111,216),BackgroundTransparency=1,
+    Position=UDim2.new(1,-76,0,5),Size=UDim2.fromOffset(30,30)
+},window)
+-- Keep window controls visible above the anime image and all overlays.
+local controlsBar=new('Frame',{
+    Name='WindowControlsBar',BackgroundColor3=Color3.fromRGB(24,7,27),
+    BackgroundTransparency=.08,BorderSizePixel=0,
+    Position=UDim2.new(1,-124,0,3),Size=UDim2.fromOffset(120,38),
+    ZIndex=60,Active=false
+},window)
+round(controlsBar,9)
+styleStroke(controlsBar,Color3.fromRGB(255,73,183),.05)
+for _,button in ipairs({hideBtn,maximizeBtn,close}) do
+    button.ZIndex=70
+    button.BackgroundTransparency=1
+    button.TextColor3=Color3.fromRGB(255,115,220)
+    button.TextStrokeColor3=Color3.fromRGB(65,0,43)
+    button.TextStrokeTransparency=.3
+    button.Active=true
+    button.AutoButtonColor=true
+end
+-- Ensure the three controls sit inside the top-right strip.
+hideBtn.Position=UDim2.new(1,-117,0,7)
+maximizeBtn.Position=UDim2.new(1,-79,0,7)
+close.Position=UDim2.new(1,-41,0,7)
+local expanded=false
+local normalWindowPosition=window.Position
+local normalWindowSize=window.Size
+maximizeBtn.Activated:Connect(function()
+    expanded=not expanded
+    -- Keep the same design proportions; change only the UI scale.
+    if expanded then
+        responsiveScale.Scale=math.min(1,responsiveScale.Scale*1.1)
+        maximizeBtn.Text='▣'
+    else
+        maximizeBtn.Text='□'
+        updateResponsiveScale()
+    end
+    window.Position=UDim2.fromScale(.5,.5)
+end)
+local side=new('Frame',{BackgroundColor3=Color3.fromRGB(20,8,25),BackgroundTransparency=.8,BorderSizePixel=0,Position=UDim2.fromOffset(12,10),Size=UDim2.fromOffset(172,555)},window);round(side,8)
+local content=new('Frame',{BackgroundTransparency=1,Position=UDim2.fromOffset(215,45),Size=UDim2.fromOffset(614,522)},window)
 -- Anime portrait with tongue, EMBEDDED inside this Lua script.
 -- Works with executors supporting writefile + getcustomasset/getsynasset.
 local ANIME_FALLBACK = 'rbxassetid://6675147486'
@@ -460,7 +514,16 @@ local EXECUTOR_PRESET = 'loadstring(game:HttpGet("https://raw.githubusercontent.
 local function selectPage(name)
     currentPage=name
     clearPage(); heading.Text=name
-    if name=='Combat' then
+    if name=='Scripts' then
+        category('FOLIX / GAME FEATURES')
+        note('Выбери раздел ниже. Все функции исходного скрипта сохранены.')
+        button('♙  Main / Speed / Fly',function()selectPage('Main')end)
+        button('⚡  Exploits',function()selectPage('Exploits')end)
+        button('⚔  Combat',function()selectPage('Combat')end)
+        button('◎  Teleport',function()selectPage('Teleport')end)
+        button('♫  Custom Animations',function()selectPage('Custom Animations')end)
+        button('◉  Targets',function()selectPage('Targets')end)
+    elseif name=='Combat' then
         category('M1 Catch')
         toggle('M1 Catch (hold left mouse)', 'catch')
         slider('Zone Size / Radius (V60)', 'zone', 10, 300, 1)
@@ -622,16 +685,72 @@ local function selectPage(name)
     end
     refreshCanvas()
 end
-local labels={'Info','Main','Exploits','Combat','Teleport','Custom Animations','Targets','Settings','Executor'}
-local icons={Info='ⓘ',Main='♙',Exploits='♧',Combat='⚔',Teleport='◎',['Custom Animations']='♧',Targets='◉',Settings='⚙',Executor='⌘'}
-for i,name in ipairs(labels) do
-    local button=new('TextButton',{BackgroundColor3=name=='Combat' and blue or Color3.fromRGB(29,13,34),BorderSizePixel=0,Text=(icons[name] or '•')..'  '..name,TextXAlignment=Enum.TextXAlignment.Left,Font=Enum.Font.Gotham,TextSize=13,TextColor3=name=='Combat' and white or muted,Size=UDim2.new(1,-15,0,36),Position=UDim2.fromOffset(8,10+(i-1)*39)},side);round(button,6)
-    pages[name]=button
-    button.MouseButton1Click:Connect(function()
-        for n,b in pairs(pages) do b.BackgroundColor3=n==name and panel or Color3.fromRGB(29,13,34);b.TextColor3=n==name and white or muted end
-        selectPage(name)
+-- FOLIX navigation reproduced with native Roblox UI elements (no screenshot sprites).
+-- Game features are accessed via Scripts; gameplay implementations are unchanged.
+side.Position=UDim2.fromOffset(0,0)
+side.Size=UDim2.fromOffset(200,580)
+side.BackgroundTransparency=1
+side.ClipsDescendants=false
+local logo=new('TextLabel',{
+    Name='FOLIXLogo',Text='FOLIX ♡',Font=Enum.Font.FredokaOne,TextSize=41,
+    TextColor3=Color3.fromRGB(255,89,182),TextStrokeColor3=Color3.fromRGB(105,9,62),
+    TextStrokeTransparency=.42,BackgroundTransparency=1,
+    TextXAlignment=Enum.TextXAlignment.Left,Position=UDim2.fromOffset(18,12),
+    Size=UDim2.fromOffset(192,53),ZIndex=11
+},side)
+new('TextLabel',{
+    Name='Tagline',Text='Better than the rest.',Font=Enum.Font.Gotham,
+    TextSize=12,TextColor3=Color3.fromRGB(250,108,189),BackgroundTransparency=1,
+    TextXAlignment=Enum.TextXAlignment.Left,Position=UDim2.fromOffset(19,69),
+    Size=UDim2.fromOffset(175,22),ZIndex=11
+},side)
+local navItems={
+    {'⌂','Home','Info'},
+    {'ϟ','Executor','Executor'},
+    {'⚙','Scripts','Scripts'},
+    {'⬡','Settings','Settings'},
+    {'♟','Credits','Info'}
+}
+local navButtons={}
+local function setActiveNav(active)
+    for _,item in ipairs(navButtons) do
+        local on=item.name==active
+        item.bg.BackgroundTransparency=on and .05 or 1
+        item.icon.TextColor3=on and Color3.fromRGB(255,239,250) or Color3.fromRGB(255,181,225)
+        item.nameLabel.TextColor3=on and Color3.fromRGB(255,248,253) or Color3.fromRGB(245,194,226)
+    end
+end
+for i,item in ipairs(navItems) do
+    local symbol,name,page=item[1],item[2],item[3]
+    local y=106+(i-1)*47
+    local buttonNav=new('TextButton',{
+        Name='Navigation_'..name,Text='',AutoButtonColor=false,
+        BackgroundTransparency=1,BorderSizePixel=0,
+        Size=UDim2.fromOffset(184,41),Position=UDim2.fromOffset(9,y),ZIndex=11
+    },side)
+    local stripe=new('Frame',{
+        Name='Highlight',BackgroundColor3=Color3.fromRGB(225,49,140),
+        BackgroundTransparency=1,BorderSizePixel=0,Size=UDim2.fromScale(1,1),ZIndex=11
+    },buttonNav)
+    round(stripe,7)
+    new('TextLabel',{
+        Text=symbol,Font=Enum.Font.GothamBold,TextSize=23,BackgroundTransparency=1,
+        TextColor3=Color3.fromRGB(255,181,225),Position=UDim2.fromOffset(10,1),
+        Size=UDim2.fromOffset(32,39),ZIndex=12
+    },buttonNav)
+    local icon=buttonNav:FindFirstChildOfClass('TextLabel')
+    local caption=new('TextLabel',{
+        Text=name,Font=Enum.Font.GothamMedium,TextSize=17,BackgroundTransparency=1,
+        TextXAlignment=Enum.TextXAlignment.Left,TextColor3=Color3.fromRGB(245,194,226),
+        Position=UDim2.fromOffset(49,2),Size=UDim2.fromOffset(125,36),ZIndex=12
+    },buttonNav)
+    table.insert(navButtons,{name=name,bg=stripe,icon=icon,nameLabel=caption})
+    buttonNav.MouseButton1Click:Connect(function()
+        setActiveNav(name)
+        selectPage(page)
     end)
 end
+setActiveNav('Home')
 -- Drag window by its title bar.
 local moving, dragStart, windowStart=false,nil,nil
 local dragRegion=new('TextButton',{Text='',BackgroundTransparency=1,Size=UDim2.new(1,-95,0,40)},window)
@@ -641,7 +760,15 @@ end)
 table.insert(connections,UIS.InputChanged:Connect(function(i)
     if moving and i.UserInputType==Enum.UserInputType.MouseMovement then
         local d=i.Position-dragStart
-        window.Position=UDim2.new(windowStart.X.Scale,windowStart.X.Offset+d.X,windowStart.Y.Scale,windowStart.Y.Offset+d.Y)
+        local canvas=screenRoot.AbsoluteSize
+        local scale=responsiveScale.Scale
+        local cx=canvas.X*.5+d.X
+        local cy=canvas.Y*.5+d.Y
+        local hw=window.Size.X.Offset*scale*.5
+        local hh=window.Size.Y.Offset*scale*.5
+        cx=math.clamp(cx,hw,math.max(hw,canvas.X-hw))
+        cy=math.clamp(cy,hh,math.max(hh,canvas.Y-hh))
+        window.Position=UDim2.fromOffset(cx,cy)
     end
 end))
 table.insert(connections,UIS.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then moving=false end end))
@@ -710,9 +837,63 @@ local function updateUwuBubble()
     round(text,18)
 end
 
+-- Тёплая надпись под персонажем: чередуется каждые 10 секунд.
+-- Видна только на этом клиенте, как и стандартная надпись UwU.
+local complimentGui=nil
+local complimentText=nil
+local complimentIndex=1
+local complimentChangedAt=os.clock()
+local compliments={
+    'Ты силён и могучий!',
+    'Ты красивый!',
+    'У тебя всё получится!',
+    'Ты настоящий чемпион!',
+    'Твоя сила — в упорстве!',
+    'Продолжай в том же духе!',
+    'Ты умеешь удивлять!',
+    'Сегодня твой день!',
+    'Ты справишься с любой задачей!',
+    'Не сдавайся — ты молодец!'
+}
+local function updateCompliment()
+    local root=me.Character and me.Character:FindFirstChild('HumanoidRootPart')
+    if not root then
+        if complimentGui then complimentGui:Destroy() end
+        complimentGui,complimentText=nil,nil
+        return
+    end
+    if not complimentGui or complimentGui.Adornee~=root then
+        if complimentGui then complimentGui:Destroy() end
+        complimentGui=Instance.new('BillboardGui')
+        complimentGui.Name='FolixCompliment'
+        complimentGui.Adornee=root
+        complimentGui.Size=UDim2.fromOffset(260,46)
+        complimentGui.StudsOffset=Vector3.new(0,-3.2,0)
+        complimentGui.AlwaysOnTop=true
+        complimentGui.Parent=ui
+        complimentText=Instance.new('TextLabel')
+        complimentText.Size=UDim2.fromScale(1,1)
+        complimentText.BackgroundColor3=Color3.fromRGB(46,18,49)
+        complimentText.BackgroundTransparency=.24
+        complimentText.TextColor3=Color3.fromRGB(255,182,223)
+        complimentText.Font=Enum.Font.GothamBold
+        complimentText.TextSize=17
+        complimentText.TextScaled=true
+        complimentText.Text=compliments[complimentIndex]
+        complimentText.Parent=complimentGui
+        round(complimentText,10)
+    end
+    if os.clock()-complimentChangedAt>=10 then
+        complimentIndex=complimentIndex%#compliments+1
+        complimentChangedAt=os.clock()
+        complimentText.Text=compliments[complimentIndex]
+    end
+end
+
 local function frame()
     if not active then return end
     updateUwuBubble()
+    updateCompliment()
     local ch=me.Character
     local hum=ch and ch:FindFirstChildOfClass('Humanoid')
     local root=ch and ch:FindFirstChild('HumanoidRootPart')
@@ -1046,9 +1227,33 @@ local function cleanup()
     if h and oldSpeed then h.WalkSpeed=oldSpeed end
     if h and oldJump then h.JumpPower=oldJump end
     if uwuBubble then uwuBubble:Destroy(); uwuBubble=nil end
+    if complimentGui then complimentGui:Destroy(); complimentGui=nil end
     ui:Destroy()
 end
 if getgenv then getgenv().LegendsXDevReplicaStop=cleanup end
 close.MouseButton1Click:Connect(cleanup)
-hideBtn.MouseButton1Click:Connect(function() window.Visible=false end)
+hideBtn.Activated:Connect(function() window.Visible=false end)
+-- Small launcher on phone and PC; stays visible while window is minimized.
+local mobileLove = new('TextButton', {
+    Name='MobileILoveButton',
+    Text='i love',
+    Font=Enum.Font.GothamBold,
+    TextSize=13,
+    TextColor3=Color3.fromRGB(255,235,248),
+    BackgroundColor3=Color3.fromRGB(210,55,139),
+    BackgroundTransparency=.08,
+    BorderSizePixel=0,
+    AnchorPoint=Vector2.new(0,1),
+    Position=UDim2.new(0,12,1,-50),
+    Size=UDim2.fromOffset(66,32),
+    ZIndex=100,
+    Visible=true
+}, ui)
+round(mobileLove,9)
+styleStroke(mobileLove,Color3.fromRGB(255,150,210),.2)
+mobileLove.Activated:Connect(function()
+    window.Visible=not window.Visible
+    if window.Visible then updateResponsiveScale() end
+end)
+
 selectPage('Combat')
