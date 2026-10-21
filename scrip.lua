@@ -105,35 +105,32 @@ local panel=Color3.fromRGB(84,62,85)
 local white=Color3.fromRGB(226,230,234)
 local muted=Color3.fromRGB(209,176,208)
 local blue=Color3.fromRGB(246,115,187)
-local window=new('Frame',{Name='Window',Size=UDim2.fromOffset(850,580),AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),BackgroundColor3=bg,BackgroundTransparency=.32,BorderSizePixel=0},ui)
--- Mobile-friendly responsive scaling. Keep original layout and functions unchanged.
+-- Mobile fix: measure the ACTUAL GUI canvas, not camera.ViewportSize.
+-- Some mobile executors report camera dimensions in a different scale.
+local screenRoot = new('Frame', {
+    Name='ScreenRoot', BackgroundTransparency=1, BorderSizePixel=0,
+    Size=UDim2.fromScale(1,1), Position=UDim2.fromScale(0,0),
+    Active=false
+}, ui)
+local window=new('Frame',{Name='Window',Size=UDim2.fromOffset(850,580),
+    AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),
+    BackgroundColor3=bg,BackgroundTransparency=.32,BorderSizePixel=0},screenRoot)
 local responsiveScale = Instance.new('UIScale')
-responsiveScale.Name = 'ResponsiveScale'
-responsiveScale.Parent = window
-local viewportConnection
-local cameraConnection
+responsiveScale.Name='ResponsiveScale'
+responsiveScale.Scale=0.5 -- safe initial value before the first layout pass
+responsiveScale.Parent=window
 local function updateResponsiveScale()
-    local camera = Workspace.CurrentCamera
-    if not camera then return end
-    local view = camera.ViewportSize
-    if view.X <= 0 or view.Y <= 0 then return end
-    local margin = 24
-    responsiveScale.Scale = math.min(1, (view.X - margin) / 850, (view.Y - margin) / 580)
+    local canvas=screenRoot.AbsoluteSize
+    if canvas.X < 1 or canvas.Y < 1 then return end
+    -- Keep the panel comfortably inside the display, including mobile controls.
+    local availableX=math.max(1, canvas.X-32)
+    local availableY=math.max(1, canvas.Y-42)
+    local scale=math.min(1, availableX/850, availableY/580)
+    responsiveScale.Scale=math.max(.1, scale)
 end
-local function watchCamera()
-    if viewportConnection then viewportConnection:Disconnect() end
-    local camera = Workspace.CurrentCamera
-    if camera then
-        viewportConnection = camera:GetPropertyChangedSignal('ViewportSize'):Connect(updateResponsiveScale)
-    end
-    updateResponsiveScale()
-end
-cameraConnection = Workspace:GetPropertyChangedSignal('CurrentCamera'):Connect(watchCamera)
-ui.Destroying:Connect(function()
-    if viewportConnection then viewportConnection:Disconnect() end
-    if cameraConnection then cameraConnection:Disconnect() end
-end)
-watchCamera()
+local rootSizeConnection=screenRoot:GetPropertyChangedSignal('AbsoluteSize'):Connect(updateResponsiveScale)
+ui.Destroying:Connect(function() rootSizeConnection:Disconnect() end)
+task.defer(updateResponsiveScale)
 round(window,10);styleStroke(window,Color3.fromRGB(218,130,177),.52)
 local title=new('TextLabel',{BackgroundTransparency=1,Text='✦  FOLIX  /  LEGENDS BATTLEGROUND',TextXAlignment=Enum.TextXAlignment.Left,Font=Enum.Font.GothamMedium,TextSize=13,TextColor3=white,Position=UDim2.fromOffset(18,8),Size=UDim2.new(1,-90,0,28)},window)
 local close=new('TextButton',{Text='×',Font=Enum.Font.Gotham,TextSize=24,TextColor3=muted,BackgroundTransparency=1,Position=UDim2.new(1,-40,0,5),Size=UDim2.fromOffset(30,30)},window)
