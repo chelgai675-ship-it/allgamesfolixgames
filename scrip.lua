@@ -291,18 +291,45 @@ local function slider(label,key,low,high,step)
     local track=new('Frame',{BackgroundColor3=Color3.fromRGB(79,83,88),BorderSizePixel=0,Position=UDim2.new(0,13,0,37),Size=UDim2.new(1,-27,0,4)},row);round(track,3)
     local fill=new('Frame',{BackgroundColor3=blue,BorderSizePixel=0,Size=UDim2.new((state[key]-low)/(high-low),0,1,0)},track);round(fill,3)
     local dot=new('Frame',{BackgroundColor3=blue,BorderSizePixel=0,Size=UDim2.fromOffset(15,15),Position=UDim2.new((state[key]-low)/(high-low),-7,0,-5)},track);round(dot,8)
+    -- Mobile-friendly hit area: the original 4px track was too small to touch.
+    local hitArea=new('TextButton',{
+        Name='SliderTouchArea',Text='',AutoButtonColor=false,
+        BackgroundTransparency=1,BorderSizePixel=0,Active=true,
+        Position=UDim2.new(0,7,0,25),Size=UDim2.new(1,-14,0,30),ZIndex=10
+    },row)
     local dragging=false
+    local activeInput=nil
     local function update(input)
         local t=math.clamp((input.Position.X-track.AbsolutePosition.X)/math.max(track.AbsoluteSize.X,1),0,1)
         local v=math.clamp(math.floor((low+t*(high-low))/step+.5)*step,low,high)
         state[key]=v
         value.Text=string.format(step<1 and '%.2f' or '%d',v)
-        fill.Size=UDim2.new(t,0,1,0);dot.Position=UDim2.new(t,-7,0,-5)
+        local exactT=(v-low)/(high-low)
+        fill.Size=UDim2.new(exactT,0,1,0)
+        dot.Position=UDim2.new(exactT,-7,0,-5)
     end
-    track.InputBegan:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true;update(input) end end)
-    local link=UIS.InputChanged:Connect(function(input) if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then update(input) end end)
+    hitArea.InputBegan:Connect(function(input)
+        if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+            dragging=true
+            activeInput=input
+            update(input)
+        end
+    end)
+    local link=UIS.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType==Enum.UserInputType.MouseMovement then
+            if activeInput and activeInput.UserInputType==Enum.UserInputType.MouseButton1 then update(input) end
+        elseif input.UserInputType==Enum.UserInputType.Touch and input==activeInput then
+            update(input)
+        end
+    end)
     table.insert(sliderConnections,link)
-    local stop=UIS.InputEnded:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
+    local stop=UIS.InputEnded:Connect(function(input)
+        if input==activeInput or (activeInput and activeInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseButton1) then
+            dragging=false
+            activeInput=nil
+        end
+    end)
     table.insert(sliderConnections,stop)
 end
 local function button(label, fn)
