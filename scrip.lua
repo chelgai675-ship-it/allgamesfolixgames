@@ -105,7 +105,35 @@ local panel=Color3.fromRGB(84,62,85)
 local white=Color3.fromRGB(226,230,234)
 local muted=Color3.fromRGB(209,176,208)
 local blue=Color3.fromRGB(246,115,187)
-local window=new('Frame',{Name='Window',Size=UDim2.fromOffset(850,580),Position=UDim2.new(.5,-425,.5,-290),BackgroundColor3=bg,BackgroundTransparency=.32,BorderSizePixel=0},ui)
+local window=new('Frame',{Name='Window',Size=UDim2.fromOffset(850,580),AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),BackgroundColor3=bg,BackgroundTransparency=.32,BorderSizePixel=0},ui)
+-- Mobile-friendly responsive scaling. Keep original layout and functions unchanged.
+local responsiveScale = Instance.new('UIScale')
+responsiveScale.Name = 'ResponsiveScale'
+responsiveScale.Parent = window
+local viewportConnection
+local cameraConnection
+local function updateResponsiveScale()
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+    local view = camera.ViewportSize
+    if view.X <= 0 or view.Y <= 0 then return end
+    local margin = 24
+    responsiveScale.Scale = math.min(1, (view.X - margin) / 850, (view.Y - margin) / 580)
+end
+local function watchCamera()
+    if viewportConnection then viewportConnection:Disconnect() end
+    local camera = Workspace.CurrentCamera
+    if camera then
+        viewportConnection = camera:GetPropertyChangedSignal('ViewportSize'):Connect(updateResponsiveScale)
+    end
+    updateResponsiveScale()
+end
+cameraConnection = Workspace:GetPropertyChangedSignal('CurrentCamera'):Connect(watchCamera)
+ui.Destroying:Connect(function()
+    if viewportConnection then viewportConnection:Disconnect() end
+    if cameraConnection then cameraConnection:Disconnect() end
+end)
+watchCamera()
 round(window,10);styleStroke(window,Color3.fromRGB(218,130,177),.52)
 local title=new('TextLabel',{BackgroundTransparency=1,Text='✦  FOLIX  /  LEGENDS BATTLEGROUND',TextXAlignment=Enum.TextXAlignment.Left,Font=Enum.Font.GothamMedium,TextSize=13,TextColor3=white,Position=UDim2.fromOffset(18,8),Size=UDim2.new(1,-90,0,28)},window)
 local close=new('TextButton',{Text='×',Font=Enum.Font.Gotham,TextSize=24,TextColor3=muted,BackgroundTransparency=1,Position=UDim2.new(1,-40,0,5),Size=UDim2.fromOffset(30,30)},window)
