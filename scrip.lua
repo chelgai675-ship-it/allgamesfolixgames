@@ -18,7 +18,7 @@ local state = {
     catch=false, zone=50, zoneAlpha=1, showCatchZone=false, approach=2.4, followHeight=0,
     hitbox=false, hitSize=20, hitAlpha=.9, realParts=false,
     esp=false, speed=false, speedValue=35, jump=false, jumpPower=60,
-    fullbright=false, followOnlyOnClick=true,
+    fullbright=false, infiniteStamina=false, followOnlyOnClick=true,
     fly=false, flySpeed=48, flyDistance=20, basicJump=false, noclip=false, teleportTarget=nil,
     shiftLock=false, watchIdle=false, coolIdle=false, customWalk=false, uwu=true,
     followRange=300, flyHeight=5, windowAlpha=.28, ignored={}, manualIgnore={}, friendAuto={}, friendPending={},
@@ -657,18 +657,28 @@ local function applyNpc(model)
     pcall(function()
         head.CanCollide=false
         head.Massless=true
-        head.Size=Vector3.new(npcSize,npcSize,npcSize)
-        head.Transparency=.5
+        local wanted=Vector3.new(npcSize,npcSize,npcSize)
+        if head.Size~=wanted then head.Size=wanted end
+        if head.Transparency~=.5 then head.Transparency=.5 end
     end)
 end
+local npcResizeScanVersion=0
 local function refreshNpc()
+    npcResizeScanVersion+=1
+    local version=npcResizeScanVersion
     if not npcEnabled then resetNpcHeads();return end
-    for _,inst in ipairs(Workspace:GetDescendants()) do
-        if inst:IsA('Model') then applyNpc(inst) end
-    end
+    task.spawn(function()
+        local descendants=Workspace:GetDescendants()
+        for i,inst in ipairs(descendants) do
+            if not active or not npcEnabled or version~=npcResizeScanVersion then return end
+            if inst:IsA('Model') then applyNpc(inst) end
+            if i%120==0 then task.wait() end
+        end
+    end)
 end
 local npcAdded=Workspace.DescendantAdded:Connect(function(obj)
     if not npcEnabled then return end
+    if not obj:IsA('Model') and not obj:IsA('Humanoid') and not (obj:IsA('BasePart') and obj.Name=='Head') then return end
     task.defer(function()
         if not active or not npcEnabled then return end
         local m=obj:IsA('Model') and obj or obj:FindFirstAncestorOfClass('Model')
@@ -677,103 +687,105 @@ local npcAdded=Workspace.DescendantAdded:Connect(function(obj)
 end)
 table.insert(connections,npcAdded)
 
--- Examination NPC ESP: separate from player ESP; highlights only living NPCs.
+-- Examination NPC ESP: event-driven tracking instead of scanning the whole map every 2 seconds.
+local npcEspScanVersion=0
+local npcEspConnections={}
+local function disposeNpcEsp(model)
+    local items=npcEspObjects[model]
+    if not items then return end
+    if items.hpConnection then items.hpConnection:Disconnect() end
+    if items.maxHpConnection then items.maxHpConnection:Disconnect() end
+    if items.ancestryConnection then items.ancestryConnection:Disconnect() end
+    if items.highlight then items.highlight:Destroy() end
+    if items.label then items.label:Destroy() end
+    npcEspObjects[model]=nil
+end
 local function clearNpcEsp()
-    for model,items in pairs(npcEspObjects) do
-        if items.highlight then items.highlight:Destroy() end
-        if items.label then items.label:Destroy() end
-        npcEspObjects[model]=nil
-    end
+    npcEspScanVersion+=1
+    for model in pairs(npcEspObjects) do disposeNpcEsp(model) end
 end
 local function npcEspTarget(model)
     if not model or not model:IsA('Model') or model==me.Character then return nil end
     if Players:GetPlayerFromCharacter(model) then return nil end
     local hum=model:FindFirstChildOfClass('Humanoid')
     local anchor=model:FindFirstChild('Head') or model:FindFirstChild('HumanoidRootPart')
-    if hum and hum.Health>0 and anchor and anchor:IsA('BasePart') then return anchor end
+    if hum and hum.Health>0 and anchor and anchor:IsA('BasePart') then return anchor,hum end
 end
 local function addNpcEsp(model)
-    if not npcEspEnabled or selectedGame~='Examination' then return end
-    local head=npcEspTarget(model)
+    if not active or not npcEspEnabled or selectedGame~='Examination' then return end
+    if npcEspObjects[model] then return end
+    local head,hum=npcEspTarget(model)
     if not head then return end
-    local items=npcEspObjects[model]
-    if not items then
-        local glow=Instance.new('Highlight')
-        glow.Name='FOLIX_Examination_NPC_ESP'
-        glow.Adornee=model
-        glow.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-        glow.FillTransparency=.75
-        glow.OutlineTransparency=0
-        glow.Parent=model
-        local bb=Instance.new('BillboardGui')
-        bb.Name='FOLIX_NPC_Name'
-        bb.AlwaysOnTop=true
-        bb.Size=UDim2.fromOffset(220,42)
-        bb.StudsOffset=Vector3.new(0,2.4,0)
-        bb.Adornee=head
-        bb.Parent=ui
-        local txt=Instance.new('TextLabel')
-        txt.Size=UDim2.fromScale(1,1)
-        txt.BackgroundTransparency=1
-        txt.Font=Enum.Font.GothamBold
-        txt.TextSize=13
-        txt.TextStrokeTransparency=.3
-        txt.Text=model.Name
-        txt.Parent=bb
-        items={highlight=glow,label=bb,text=txt}
-        npcEspObjects[model]=items
-    end
+    local glow=Instance.new('Highlight')
+    glow.Name='FOLIX_Examination_NPC_ESP'
+    glow.Adornee=model
+    glow.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+    glow.FillTransparency=.85 -- less fill overdraw on mobile
+    glow.OutlineTransparency=0
+    glow.Parent=model
+    local bb=Instance.new('BillboardGui')
+    bb.Name='FOLIX_NPC_Name'
+    bb.AlwaysOnTop=true
+    bb.Size=UDim2.fromOffset(180,34)
+    bb.StudsOffset=Vector3.new(0,2.4,0)
+    bb.Adornee=head
+    bb.Parent=ui
+    local txt=Instance.new('TextLabel')
+    txt.Size=UDim2.fromScale(1,1)
+    txt.BackgroundTransparency=1
+    txt.Font=Enum.Font.GothamBold
+    txt.TextSize=13
+    txt.TextStrokeTransparency=.45
+    txt.Parent=bb
     local color=selectedTheme=='Cinema' and Color3.fromRGB(235,235,235) or Color3.fromRGB(255,90,177)
-    items.highlight.FillColor=color
-    items.highlight.OutlineColor=color
-    items.text.TextColor3=color
-    items.label.Adornee=head
-    local hum=model:FindFirstChildOfClass('Humanoid')
-    if hum then
+    glow.FillColor=color; glow.OutlineColor=color; txt.TextColor3=color
+    local items={highlight=glow,label=bb,text=txt}
+    npcEspObjects[model]=items
+    local lastText=nil
+    local function updateHp()
+        if not active or not hum.Parent or hum.Health<=0 then
+            disposeNpcEsp(model)
+            return
+        end
         local maxHp=math.max(0,math.floor(hum.MaxHealth+0.5))
         local hp=math.clamp(math.floor(hum.Health+0.5),0,maxHp)
-        items.text.Text=model.Name..'  '..hp..'/'..maxHp
+        local value=model.Name..'  '..hp..'/'..maxHp
+        if value~=lastText and txt.Parent then txt.Text=value;lastText=value end
     end
+    items.hpConnection=hum.HealthChanged:Connect(updateHp)
+    items.maxHpConnection=hum:GetPropertyChangedSignal('MaxHealth'):Connect(updateHp)
+    items.ancestryConnection=model.AncestryChanged:Connect(function(_,parent)
+        if not parent then disposeNpcEsp(model) end
+    end)
+    updateHp()
 end
 local function updateNpcEsp()
     if not npcEspEnabled or selectedGame~='Examination' then
         clearNpcEsp()
         return
     end
-    for model,items in pairs(npcEspObjects) do
-        if not model.Parent or not npcEspTarget(model) then
-            if items.highlight then items.highlight:Destroy() end
-            if items.label then items.label:Destroy() end
-            npcEspObjects[model]=nil
+    -- One initial scan split across frames; later NPCs are picked up by DescendantAdded.
+    npcEspScanVersion+=1
+    local version=npcEspScanVersion
+    task.spawn(function()
+        local descendants=Workspace:GetDescendants()
+        for i,obj in ipairs(descendants) do
+            if not active or not npcEspEnabled or selectedGame~='Examination' or version~=npcEspScanVersion then return end
+            if obj:IsA('Model') then addNpcEsp(obj) end
+            if i%120==0 then task.wait() end
         end
-    end
-    for _,obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA('Model') then addNpcEsp(obj) end
-    end
+    end)
 end
-local npcEspElapsed=0
-local npcHpElapsed=0
-table.insert(connections,RunService.Heartbeat:Connect(function(dt)
-    if not active or not npcEspEnabled then return end
-    npcEspElapsed=npcEspElapsed+dt
-    npcHpElapsed=npcHpElapsed+dt
-    if npcEspElapsed>=2 then
-        npcEspElapsed=0
-        updateNpcEsp()
+local npcEspAdded=Workspace.DescendantAdded:Connect(function(obj)
+    if not active or not npcEspEnabled or selectedGame~='Examination' then return end
+    if obj:IsA('Model') then
+        task.defer(addNpcEsp,obj)
+    elseif obj:IsA('Humanoid') or (obj:IsA('BasePart') and (obj.Name=='Head' or obj.Name=='HumanoidRootPart')) then
+        local model=obj:FindFirstAncestorOfClass('Model')
+        if model then task.defer(addNpcEsp,model) end
     end
-    if npcHpElapsed>=0.2 then
-        npcHpElapsed=0
-        -- Refresh visible health without another full Workspace scan.
-        for model,items in pairs(npcEspObjects) do
-            local hum=model:FindFirstChildOfClass('Humanoid')
-            if hum and items.text and items.text.Parent then
-                local maxHp=math.max(0,math.floor(hum.MaxHealth+0.5))
-                local hp=math.clamp(math.floor(hum.Health+0.5),0,maxHp)
-                items.text.Text=model.Name..'  '..hp..'/'..maxHp
-            end
-        end
-    end
-end))
+end)
+table.insert(connections,npcEspAdded)
 
 -- Mobile attack binding state must exist BEFORE selectPage callbacks.
 local mobileAttackButton = nil
@@ -804,6 +816,10 @@ local function selectPage(name)
         end)
         note('Настройки тем и звука также есть во вкладке Settings.')
     elseif name=='Examination' then
+        category('EXAMINATION — PLAYER')
+        toggle('Fullbright / Яркое освещение', 'fullbright')
+        toggle('Infinite Stamina / Бесконечная стамина', 'infiniteStamina')
+        note('Стамина: локальная попытка поддерживать полное значение. Если сервер управляет стаминой, переключатель не сможет его обойти.')
         category('EXAMINATION — NPC ESP')
         button('NPC ESP: '..(npcEspEnabled and 'ON ✓' or 'OFF'),function()
             npcEspEnabled=not npcEspEnabled
@@ -927,7 +943,7 @@ local function selectPage(name)
         toggle('Camera Orbit / Fixed Facing (Shift)', 'shiftLock')
         note('Shift = free shoulder camera. During M1 Catch your character faces the opponent\'s back regardless of camera direction. Ctrl opens menu.')
     elseif name=='Exploits' then
-        category('Visuals');toggle('Player ESP', 'esp');toggle('Fullbright','fullbright')
+        category('Visuals');toggle('Player ESP', 'esp');toggle('Fullbright','fullbright');toggle('Infinite Stamina','infiniteStamina')
         category('Movement');toggle('Fly', 'fly');slider('Fly Speed','flySpeed',10,150,1)
         toggle('Basic Jump','basicJump');toggle('Noclip','noclip')
         toggle('Shift Lock (Shift)','shiftLock')
@@ -1300,6 +1316,8 @@ local function frame()
     end
     -- Back-follow orientation is updated separately AFTER camera controls.
     -- No M1 rotation here: competing per-frame writes cause flicker.
+    -- Don't iterate through every player on each frame in Examination when Player ESP/hitbox are off.
+    if state.hitbox or state.esp or next(boxes) or next(espGui) or (state.hitbox and state.realParts) then
     for _,plr in ipairs(Players:GetPlayers()) do
         if plr~=me then
             local enemy=plr.Character
@@ -1337,11 +1355,19 @@ local function frame()
             end
         end
     end
+    end -- player effect loop
     if not (state.hitbox and state.realParts) and next(originalParts) then restore() end
-    if state.fullbright then Lighting.Brightness=3;Lighting.ClockTime=14;Lighting.FogEnd=100000 else
-        Lighting.Brightness=lightingOld.Brightness;Lighting.ClockTime=lightingOld.ClockTime;Lighting.FogEnd=lightingOld.FogEnd
+    -- Avoid redundant per-frame property writes that may trigger other scripts.
+    if state.fullbright then
+        if Lighting.Brightness~=3 then Lighting.Brightness=3 end
+        if Lighting.ClockTime~=14 then Lighting.ClockTime=14 end
+        if Lighting.FogEnd~=100000 then Lighting.FogEnd=100000 end
+    else
+        if Lighting.Brightness~=lightingOld.Brightness then Lighting.Brightness=lightingOld.Brightness end
+        if Lighting.ClockTime~=lightingOld.ClockTime then Lighting.ClockTime=lightingOld.ClockTime end
+        if Lighting.FogEnd~=lightingOld.FogEnd then Lighting.FogEnd=lightingOld.FogEnd end
     end
-    if state.windowAlpha then window.BackgroundTransparency=state.windowAlpha end
+    if state.windowAlpha and window.BackgroundTransparency~=state.windowAlpha then window.BackgroundTransparency=state.windowAlpha end
 end
 -- Camera shoulder lock + local R6 animation controls
 local function animationAndCamera(dt)
@@ -1627,6 +1653,34 @@ end
 RunService:BindToRenderStep(backFollowStepName, Enum.RenderPriority.Camera.Value + 10, updateBackFollow)
 
 table.insert(connections,RunService.Heartbeat:Connect(frame))
+-- Lightweight stamina helper. Does not scan Workspace or force server-owned values.
+-- Some games keep stamina exclusively on the server, in which case this cannot work.
+local staminaClock=0
+local function updateLocalStamina(dt)
+    if not active or not state.infiniteStamina then return end
+    staminaClock=staminaClock+dt
+    if staminaClock<0.25 then return end
+    staminaClock=0
+    local character=me.Character
+    local humanoid=character and character:FindFirstChildOfClass('Humanoid')
+    for _,holder in ipairs({me,character,humanoid}) do
+        if holder then
+            for _,name in ipairs({'Stamina','stamina','STAMINA'}) do
+                local maximum=holder:GetAttribute('MaxStamina') or holder:GetAttribute('maxStamina') or 100
+                if type(maximum)~='number' or maximum<=0 then maximum=100 end
+                local value=holder:GetAttribute(name)
+                if type(value)=='number' and value<maximum then
+                    pcall(function()holder:SetAttribute(name,maximum)end)
+                end
+                local obj=holder:FindFirstChild(name)
+                if obj and (obj:IsA('NumberValue') or obj:IsA('IntValue')) and obj.Value<maximum then
+                    pcall(function()obj.Value=maximum end)
+                end
+            end
+        end
+    end
+end
+table.insert(connections,RunService.Heartbeat:Connect(updateLocalStamina))
 table.insert(connections,RunService.RenderStepped:Connect(animationAndCamera))
 -- Friend requests can be accepted while both players are already in the server.
 -- A one-time PlayerAdded lookup misses those changes, so refresh periodically.
