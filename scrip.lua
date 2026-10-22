@@ -675,6 +675,14 @@ local npcAdded=Workspace.DescendantAdded:Connect(function(obj)
 end)
 table.insert(connections,npcAdded)
 
+-- Mobile attack binding state must exist BEFORE selectPage callbacks.
+local mobileAttackButton = nil
+local mobileAttackTouch = nil
+local bindingAttackButton = false
+local mobileFollowHeld = false
+local boundAttackCenter = nil
+local boundAttackRadius = 42
+local boundAttackGui = nil
 local function selectPage(name)
     currentPage=name
     clearPage(); heading.Text=name
@@ -730,6 +738,8 @@ local function selectPage(name)
                 bindingAttackButton=true
                 mobileAttackTouch=nil
                 mobileFollowHeld=false
+                boundAttackCenter=nil
+                boundAttackGui=nil
                 window.Visible=false
             end)
             note('Нажми «Привязать», затем коснись ИГРОВОЙ кнопки удара. Обычные касания экрана не включают M1 Catch.')
@@ -1327,10 +1337,6 @@ local backFollowTarget = nil
 local lastStableForward = nil
 local followHeldLastFrame = false
 -- Mobile: pair with the game's real attack control. Ordinary screen taps never activate catch.
-local mobileAttackButton = nil
-local mobileAttackTouch = nil
-local bindingAttackButton = false
-local mobileFollowHeld = false
 local GuiService = game:GetService('GuiService')
 local function isAttackControl(btn)
     if not btn or not btn:IsA('GuiButton') or btn:IsDescendantOf(ui) then return false end
@@ -1369,12 +1375,28 @@ local function autoFindAttackButton()
     end
 end
 if UIS.TouchEnabled then task.defer(autoFindAttackButton) end
-local mobileBeginConnection = UIS.InputBegan:Connect(function(input)
+local function touchIsAttack(position)
+    -- Prefer the exact button chosen by the user, never any arbitrary GUI tap.
+    if mobileAttackButton and mobileAttackButton.Parent then
+        local pt=mobileAttackButton.AbsolutePosition
+        local sz=mobileAttackButton.AbsoluteSize
+        if position.X>=pt.X and position.X<=pt.X+sz.X
+            and position.Y>=pt.Y and position.Y<=pt.Y+sz.Y then
+            return true
+        end
+    end
+    -- Some games draw attack controls without accessible GuiButtons.
+    -- In that case use only a small, manually calibrated touch region.
+    if boundAttackCenter then
+        return (Vector2.new(position.X,position.Y)-boundAttackCenter).Magnitude <= boundAttackRadius
+    end
+    return false
+end
+local mobileBeginConnection = UIS.InputBegan:Connect(function(input, processed)
     if input.UserInputType~=Enum.UserInputType.Touch or not active then return end
-    if window.Visible then return end
     if bindingAttackButton then
+        if window.Visible then return end
         local selected=guiAtTouch(input.Position,false)
-        -- Manual pairing may choose any real GuiButton under the user's finger.
         if not selected then
             local ok, arr=pcall(function()return GuiService:GetGuiObjectsAtPosition(input.Position.X,input.Position.Y)end)
             if ok then
@@ -1388,11 +1410,22 @@ local mobileBeginConnection = UIS.InputBegan:Connect(function(input)
                 end
             end
         end
-        if selected then mobileAttackButton=selected; bindingAttackButton=false end
+        mobileAttackButton=selected
+        boundAttackCenter=Vector2.new(input.Position.X,input.Position.Y)
+        boundAttackGui=selected
+        if selected then
+            boundAttackRadius=math.max(20, math.min(selected.AbsoluteSize.X, selected.AbsoluteSize.Y)*.5)
+        else
+            boundAttackRadius=38
+        end
+        bindingAttackButton=false
+        mobileAttackTouch=nil
+        mobileFollowHeld=false
         return
     end
-    if not mobileAttackButton or not mobileAttackButton.Parent then autoFindAttackButton() end
-    if mobileAttackButton and guiAtTouch(input.Position,true) then
+    if window.Visible or not state.catch or selectedGame=='Examination' then return end
+    if not mobileAttackButton and not boundAttackCenter then return end
+    if mobileAttackTouch == nil and touchIsAttack(input.Position) then
         mobileAttackTouch=input
         mobileFollowHeld=true
     end
@@ -1407,6 +1440,7 @@ ui.Destroying:Connect(function()
     mobileBeginConnection:Disconnect()
     mobileEndConnection:Disconnect()
 end)
+local lastFollowTime=nil
 local backFollowStepName = 'LBF_BackFollow_V12'
 local function updateBackFollow()
     if not active or selectedGame=='Examination' then return end
@@ -1421,6 +1455,7 @@ local function updateBackFollow()
         and hum and hum.Health > 0 and root
     if not pressed then
         backFollowTarget = nil
+        lastFollowTime=nil
         lastStableForward = nil
         if followHeldLastFrame and hum and not state.shiftLock then
             hum.AutoRotate = true
@@ -1443,33 +1478,32 @@ local function updateBackFollow()
         backFollowTarget = targetRoot
     end
     if not targetRoot then return end
-    local forward = targetRoot.CFrame.LookVector
-    forward = Vector3.new(forward.X, 0, forward.Z)
-    -- Rag-doll physics can rotate the target root sideways or upside down.
-    -- Hold the last upright heading while the target is tumbling.
-    if math.abs(targetRoot.CFrame.UpVector.Y) >= 0.7 and forward.Magnitude > 0.05 then
-        forward = forward.Unit
-        lastStableForward = forward
-    elseif lastStableForward then
-        forward = lastStableForward
-    elseif forward.Magnitude > 0.05 then
-        forward = forward.Unit
-    else
-        return
+    -- Target's BACK follows torso orientation in 3D (standing, lying, airborne).
+    -- The flattened horizontal direction used before was wrong for ragdolls.
+    local targetChar=targetRoot.Parent
+    local targetTorso=targetChar and (targetChar:FindFirstChild('UpperTorso') or targetChar:FindFirstChild('Torso'))
+    local body=targetTorso or targetRoot
+    local forward=body.CFrame.LookVector
+    if forward.Magnitude<0.01 then return end
+    forward=forward.Unit
+    local targetPos=body.Position
+    local behind=targetPos-forward*state.approach + body.CFrame.UpVector*state.followHeight
+    local facing=targetPos-behind
+    if facing.Magnitude<0.01 then return end
+    local up=body.CFrame.UpVector
+    if math.abs(facing.Unit:Dot(up))>.98 then up=Vector3.yAxis end
+    local desired=CFrame.lookAt(behind,targetPos,up)
+    hum.AutoRotate=false
+    -- Exponential smoothing gives near-immediate tracking without a hard CFrame snap.
+    -- Server reconciliation can still cause jitter, which local code cannot prevent.
+    local now=os.clock()
+    local dt=math.clamp(now-(lastFollowTime or (now-1/60)),1/240,1/15)
+    lastFollowTime=now
+    local alpha=1-math.exp(-40*dt)
+    if (root.Position-behind).Magnitude>0.02 or root.CFrame.LookVector:Dot(desired.LookVector)<.999 then
+        root.CFrame=root.CFrame:Lerp(desired,alpha)
     end
-    -- Correct back position: (behind-target) dot forward is negative.
-    local targetPos = targetRoot.Position
-    local behind = targetPos - forward * state.approach
-        + Vector3.new(0, state.followHeight, 0)
-    local faceAt = Vector3.new(targetPos.X, behind.Y, targetPos.Z)
-    hum.AutoRotate = false
-    -- Avoid redundant character updates on mobile to reduce visible camera jitter.
-    local desired = CFrame.lookAt(behind, faceAt)
-    if not UIS.TouchEnabled or (root.Position - behind).Magnitude > 0.12
-        or root.CFrame.LookVector:Dot(desired.LookVector) < 0.995 then
-        root.CFrame = desired
-    end
-    root.AssemblyAngularVelocity = Vector3.zero
+    root.AssemblyAngularVelocity=Vector3.zero
 end
 -- Runs just after Roblox's default camera update, countering camera-facing code.
 RunService:BindToRenderStep(backFollowStepName, Enum.RenderPriority.Camera.Value + 10, updateBackFollow)
