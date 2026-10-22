@@ -32,6 +32,8 @@ local selectedGame='Legends Battleground'
 local selectedTheme='Cinema'
 local cinemaSoundEnabled=true
 local npcEnabled=false
+local npcEspEnabled=false
+local npcEspObjects={}
 local npcSize=4
 local npcOriginals={}
 local flyVelocity=nil
@@ -675,6 +677,104 @@ local npcAdded=Workspace.DescendantAdded:Connect(function(obj)
 end)
 table.insert(connections,npcAdded)
 
+-- Examination NPC ESP: separate from player ESP; highlights only living NPCs.
+local function clearNpcEsp()
+    for model,items in pairs(npcEspObjects) do
+        if items.highlight then items.highlight:Destroy() end
+        if items.label then items.label:Destroy() end
+        npcEspObjects[model]=nil
+    end
+end
+local function npcEspTarget(model)
+    if not model or not model:IsA('Model') or model==me.Character then return nil end
+    if Players:GetPlayerFromCharacter(model) then return nil end
+    local hum=model:FindFirstChildOfClass('Humanoid')
+    local anchor=model:FindFirstChild('Head') or model:FindFirstChild('HumanoidRootPart')
+    if hum and hum.Health>0 and anchor and anchor:IsA('BasePart') then return anchor end
+end
+local function addNpcEsp(model)
+    if not npcEspEnabled or selectedGame~='Examination' then return end
+    local head=npcEspTarget(model)
+    if not head then return end
+    local items=npcEspObjects[model]
+    if not items then
+        local glow=Instance.new('Highlight')
+        glow.Name='FOLIX_Examination_NPC_ESP'
+        glow.Adornee=model
+        glow.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+        glow.FillTransparency=.75
+        glow.OutlineTransparency=0
+        glow.Parent=model
+        local bb=Instance.new('BillboardGui')
+        bb.Name='FOLIX_NPC_Name'
+        bb.AlwaysOnTop=true
+        bb.Size=UDim2.fromOffset(220,42)
+        bb.StudsOffset=Vector3.new(0,2.4,0)
+        bb.Adornee=head
+        bb.Parent=ui
+        local txt=Instance.new('TextLabel')
+        txt.Size=UDim2.fromScale(1,1)
+        txt.BackgroundTransparency=1
+        txt.Font=Enum.Font.GothamBold
+        txt.TextSize=13
+        txt.TextStrokeTransparency=.3
+        txt.Text=model.Name
+        txt.Parent=bb
+        items={highlight=glow,label=bb,text=txt}
+        npcEspObjects[model]=items
+    end
+    local color=selectedTheme=='Cinema' and Color3.fromRGB(235,235,235) or Color3.fromRGB(255,90,177)
+    items.highlight.FillColor=color
+    items.highlight.OutlineColor=color
+    items.text.TextColor3=color
+    items.label.Adornee=head
+    local hum=model:FindFirstChildOfClass('Humanoid')
+    if hum then
+        local maxHp=math.max(0,math.floor(hum.MaxHealth+0.5))
+        local hp=math.clamp(math.floor(hum.Health+0.5),0,maxHp)
+        items.text.Text=model.Name..'  '..hp..'/'..maxHp
+    end
+end
+local function updateNpcEsp()
+    if not npcEspEnabled or selectedGame~='Examination' then
+        clearNpcEsp()
+        return
+    end
+    for model,items in pairs(npcEspObjects) do
+        if not model.Parent or not npcEspTarget(model) then
+            if items.highlight then items.highlight:Destroy() end
+            if items.label then items.label:Destroy() end
+            npcEspObjects[model]=nil
+        end
+    end
+    for _,obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA('Model') then addNpcEsp(obj) end
+    end
+end
+local npcEspElapsed=0
+local npcHpElapsed=0
+table.insert(connections,RunService.Heartbeat:Connect(function(dt)
+    if not active or not npcEspEnabled then return end
+    npcEspElapsed=npcEspElapsed+dt
+    npcHpElapsed=npcHpElapsed+dt
+    if npcEspElapsed>=2 then
+        npcEspElapsed=0
+        updateNpcEsp()
+    end
+    if npcHpElapsed>=0.2 then
+        npcHpElapsed=0
+        -- Refresh visible health without another full Workspace scan.
+        for model,items in pairs(npcEspObjects) do
+            local hum=model:FindFirstChildOfClass('Humanoid')
+            if hum and items.text and items.text.Parent then
+                local maxHp=math.max(0,math.floor(hum.MaxHealth+0.5))
+                local hp=math.clamp(math.floor(hum.Health+0.5),0,maxHp)
+                items.text.Text=model.Name..'  '..hp..'/'..maxHp
+            end
+        end
+    end
+end))
+
 -- Mobile attack binding state must exist BEFORE selectPage callbacks.
 local mobileAttackButton = nil
 local mobileAttackTouch = nil
@@ -704,6 +804,13 @@ local function selectPage(name)
         end)
         note('Настройки тем и звука также есть во вкладке Settings.')
     elseif name=='Examination' then
+        category('EXAMINATION — NPC ESP')
+        button('NPC ESP: '..(npcEspEnabled and 'ON ✓' or 'OFF'),function()
+            npcEspEnabled=not npcEspEnabled
+            updateNpcEsp()
+            selectPage('Examination')
+        end)
+        note('Подсвечивает NPC и показывает их имена. Игроков не подсвечивает. Цвет зависит от темы Cinema / UwU.')
         category('EXAMINATION — NPC HEAD SIZE')
         note('Меняется размер настоящей головы NPC только локально; попадания определяет сервер. Большие размеры могут нарушить движение ботов.')
         button('NPC HEAD: '..(npcEnabled and 'ON ✓' or 'OFF'),function()
@@ -1578,6 +1685,7 @@ local function cleanup()
     if h and oldSpeed then h.WalkSpeed=oldSpeed end
     if h and oldJump then h.JumpPower=oldJump end
     resetNpcHeads()
+    clearNpcEsp()
     if uwuBubble then uwuBubble:Destroy(); uwuBubble=nil end
     if complimentGui then complimentGui:Destroy(); complimentGui=nil end
     ui:Destroy()
