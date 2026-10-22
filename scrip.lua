@@ -1494,15 +1494,9 @@ local function updateBackFollow()
     if math.abs(facing.Unit:Dot(up))>.98 then up=Vector3.yAxis end
     local desired=CFrame.lookAt(behind,targetPos,up)
     hum.AutoRotate=false
-    -- Exponential smoothing gives near-immediate tracking without a hard CFrame snap.
-    -- Server reconciliation can still cause jitter, which local code cannot prevent.
-    local now=os.clock()
-    local dt=math.clamp(now-(lastFollowTime or (now-1/60)),1/240,1/15)
-    lastFollowTime=now
-    local alpha=1-math.exp(-40*dt)
-    if (root.Position-behind).Magnitude>0.02 or root.CFrame.LookVector:Dot(desired.LookVector)<.999 then
-        root.CFrame=root.CFrame:Lerp(desired,alpha)
-    end
+    -- Zero smoothing delay: match the current target pose each rendered frame.
+    -- This is an immediate local update, not a guarantee against server correction.
+    root.CFrame=desired
     root.AssemblyAngularVelocity=Vector3.zero
 end
 -- Runs just after Roblox's default camera update, countering camera-facing code.
