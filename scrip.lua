@@ -1478,24 +1478,41 @@ local function updateBackFollow()
         backFollowTarget = targetRoot
     end
     if not targetRoot then return end
-    -- Target's BACK follows torso orientation in 3D (standing, lying, airborne).
-    -- The flattened horizontal direction used before was wrong for ragdolls.
+    -- Follow the opponent's back, but ALWAYS remain upright.
+    -- For prone or tumbling targets the back can point upwards; do not copy
+    -- their roll/pitch into the local character (that caused flying/tilting).
     local targetChar=targetRoot.Parent
     local targetTorso=targetChar and (targetChar:FindFirstChild('UpperTorso') or targetChar:FindFirstChild('Torso'))
     local body=targetTorso or targetRoot
-    local forward=body.CFrame.LookVector
-    if forward.Magnitude<0.01 then return end
-    forward=forward.Unit
+    local backDirection=-body.CFrame.LookVector
+    if backDirection.Magnitude<0.01 then return end
+    backDirection=backDirection.Unit
     local targetPos=body.Position
-    local behind=targetPos-forward*state.approach + body.CFrame.UpVector*state.followHeight
-    local facing=targetPos-behind
-    if facing.Magnitude<0.01 then return end
-    local up=body.CFrame.UpVector
-    if math.abs(facing.Unit:Dot(up))>.98 then up=Vector3.yAxis end
-    local desired=CFrame.lookAt(behind,targetPos,up)
+    -- Back offset is full 3D: when opponent lies face-down this is above them.
+    local behind=targetPos+backDirection*state.approach + body.CFrame.UpVector*state.followHeight
+    -- Always stay upright. When the target is prone, the vector toward
+    -- its back can become vertical, so choose a horizontal heading from
+    -- the target torso's axes instead of freezing the previous direction.
+    local horizontal=Vector3.new(targetPos.X-behind.X,0,targetPos.Z-behind.Z)
+    if horizontal.Magnitude > 0.03 then
+        lastStableForward=horizontal.Unit
+    else
+        local torsoForward=body.CFrame.LookVector
+        local flatForward=Vector3.new(torsoForward.X,0,torsoForward.Z)
+        if flatForward.Magnitude < 0.03 then
+            local torsoRight=body.CFrame.RightVector
+            flatForward=Vector3.new(torsoRight.X,0,torsoRight.Z)
+        end
+        if flatForward.Magnitude > 0.03 then
+            lastStableForward=flatForward.Unit
+        elseif not lastStableForward then
+            lastStableForward=Vector3.new(0,0,-1)
+        end
+    end
+    local desired=CFrame.lookAt(behind,behind+lastStableForward,Vector3.yAxis)
     hum.AutoRotate=false
-    -- Zero smoothing delay: match the current target pose each rendered frame.
-    -- This is an immediate local update, not a guarantee against server correction.
+    -- No artificial interpolation or waits. Each frame uses the latest position.
+    -- Network ownership/server corrections may still cause visible snaps.
     root.CFrame=desired
     root.AssemblyAngularVelocity=Vector3.zero
 end
