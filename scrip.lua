@@ -724,7 +724,16 @@ local function selectPage(name)
         end
     elseif name=='Combat' then
         category('M1 Catch')
-        toggle('M1 Catch (hold left mouse)', 'catch')
+        toggle(UIS.TouchEnabled and 'M1 Catch (кнопка УДАР)' or 'M1 Catch (hold left mouse)', 'catch')
+        if UIS.TouchEnabled then
+            button('📱 Привязать кнопку УДАР', function()
+                bindingAttackButton=true
+                mobileAttackTouch=nil
+                mobileFollowHeld=false
+                window.Visible=false
+            end)
+            note('Нажми «Привязать», затем коснись ИГРОВОЙ кнопки удара. Обычные касания экрана не включают M1 Catch.')
+        end
         slider('Zone Size / Radius (V60)', 'zone', 10, 300, 1)
         toggle('Show M1 Zone (visual only)', 'showCatchZone')
         slider('Zone Transparency (visual only)', 'zoneAlpha', 0, 1, .05)
@@ -1317,14 +1326,97 @@ end
 local backFollowTarget = nil
 local lastStableForward = nil
 local followHeldLastFrame = false
+-- Mobile: pair with the game's real attack control. Ordinary screen taps never activate catch.
+local mobileAttackButton = nil
+local mobileAttackTouch = nil
+local bindingAttackButton = false
+local mobileFollowHeld = false
+local GuiService = game:GetService('GuiService')
+local function isAttackControl(btn)
+    if not btn or not btn:IsA('GuiButton') or btn:IsDescendantOf(ui) then return false end
+    local name = string.lower(btn.Name or '')
+    local label = btn:IsA('TextButton') and string.lower(btn.Text or '') or ''
+    return name:find('attack',1,true) or name:find('punch',1,true)
+        or name=='m1' or name:find('combatbutton',1,true)
+        or label=='attack' or label=='punch' or label=='удар' or label=='m1'
+end
+local function guiAtTouch(pos, boundOnly)
+    local ok, objects = pcall(function() return GuiService:GetGuiObjectsAtPosition(pos.X, pos.Y) end)
+    if not ok then return nil end
+    for _,obj in ipairs(objects) do
+        local cur=obj
+        while cur and cur~=game do
+            if cur:IsA('GuiButton') and not cur:IsDescendantOf(ui) then
+                if (boundOnly and cur==mobileAttackButton) or
+                   (not boundOnly and (isAttackControl(cur) or cur==mobileAttackButton)) then
+                    return cur
+                end
+            end
+            cur=cur.Parent
+        end
+    end
+    return nil
+end
+-- Buttons are found once on first launch, then by their actual pressed touch.
+local function autoFindAttackButton()
+    local pg=me:FindFirstChildOfClass('PlayerGui')
+    if not pg then return end
+    for _,obj in ipairs(pg:GetDescendants()) do
+        if isAttackControl(obj) and obj.Visible then
+            mobileAttackButton=obj
+            break
+        end
+    end
+end
+if UIS.TouchEnabled then task.defer(autoFindAttackButton) end
+local mobileBeginConnection = UIS.InputBegan:Connect(function(input)
+    if input.UserInputType~=Enum.UserInputType.Touch or not active then return end
+    if window.Visible then return end
+    if bindingAttackButton then
+        local selected=guiAtTouch(input.Position,false)
+        -- Manual pairing may choose any real GuiButton under the user's finger.
+        if not selected then
+            local ok, arr=pcall(function()return GuiService:GetGuiObjectsAtPosition(input.Position.X,input.Position.Y)end)
+            if ok then
+                for _,obj in ipairs(arr) do
+                    local b=obj
+                    while b and b~=game do
+                        if b:IsA('GuiButton') and not b:IsDescendantOf(ui) then selected=b;break end
+                        b=b.Parent
+                    end
+                    if selected then break end
+                end
+            end
+        end
+        if selected then mobileAttackButton=selected; bindingAttackButton=false end
+        return
+    end
+    if not mobileAttackButton or not mobileAttackButton.Parent then autoFindAttackButton() end
+    if mobileAttackButton and guiAtTouch(input.Position,true) then
+        mobileAttackTouch=input
+        mobileFollowHeld=true
+    end
+end)
+local mobileEndConnection = UIS.InputEnded:Connect(function(input)
+    if input==mobileAttackTouch then
+        mobileFollowHeld=false
+        mobileAttackTouch=nil
+    end
+end)
+ui.Destroying:Connect(function()
+    mobileBeginConnection:Disconnect()
+    mobileEndConnection:Disconnect()
+end)
 local backFollowStepName = 'LBF_BackFollow_V12'
 local function updateBackFollow()
     if not active or selectedGame=='Examination' then return end
     local char = me.Character
     local hum = char and char:FindFirstChildOfClass('Humanoid')
     local root = char and char:FindFirstChild('HumanoidRootPart')
-    local pressed = state.catch and not state.fly and not window.Visible
-        and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    -- On mobile only the bound ATTACK button can hold catch; camera / joystick taps cannot.
+    local attackHeld = (UIS.TouchEnabled and mobileFollowHeld)
+        or ((not UIS.TouchEnabled) and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1))
+    local pressed = attackHeld and state.catch and not state.fly and not window.Visible
         and not UIS:GetFocusedTextBox()
         and hum and hum.Health > 0 and root
     if not pressed then
@@ -1371,7 +1463,12 @@ local function updateBackFollow()
         + Vector3.new(0, state.followHeight, 0)
     local faceAt = Vector3.new(targetPos.X, behind.Y, targetPos.Z)
     hum.AutoRotate = false
-    root.CFrame = CFrame.lookAt(behind, faceAt)
+    -- Avoid redundant character updates on mobile to reduce visible camera jitter.
+    local desired = CFrame.lookAt(behind, faceAt)
+    if not UIS.TouchEnabled or (root.Position - behind).Magnitude > 0.12
+        or root.CFrame.LookVector:Dot(desired.LookVector) < 0.995 then
+        root.CFrame = desired
+    end
     root.AssemblyAngularVelocity = Vector3.zero
 end
 -- Runs just after Roblox's default camera update, countering camera-facing code.
