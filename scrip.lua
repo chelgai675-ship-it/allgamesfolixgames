@@ -28,6 +28,7 @@ local waypointList={}
 local savedPosition=nil
 local tpSelected=nil
 local currentPage='Home'
+local staminaInfoLabel=nil
 local selectedGame='Legends Battleground'
 local selectedTheme='Cinema'
 local cinemaSoundEnabled=true
@@ -819,7 +820,7 @@ local function selectPage(name)
         category('EXAMINATION — PLAYER')
         toggle('Fullbright / Яркое освещение', 'fullbright')
         toggle('Infinite Stamina / Бесконечная стамина', 'infiniteStamina')
-        note('Стамина: локальная попытка поддерживать полное значение. Если сервер управляет стаминой, переключатель не сможет его обойти.')
+        staminaInfoLabel=note('Стамина: включи галочку для проверки локальных значений. Серверная стамина может не измениться.')
         category('EXAMINATION — NPC ESP')
         button('NPC ESP: '..(npcEspEnabled and 'ON ✓' or 'OFF'),function()
             npcEspEnabled=not npcEspEnabled
@@ -1653,31 +1654,97 @@ end
 RunService:BindToRenderStep(backFollowStepName, Enum.RenderPriority.Camera.Value + 10, updateBackFollow)
 
 table.insert(connections,RunService.Heartbeat:Connect(frame))
--- Lightweight stamina helper. Does not scan Workspace or force server-owned values.
--- Some games keep stamina exclusively on the server, in which case this cannot work.
-local staminaClock=0
-local function updateLocalStamina(dt)
-    if not active or not state.infiniteStamina then return end
-    staminaClock=staminaClock+dt
-    if staminaClock<0.25 then return end
-    staminaClock=0
-    local character=me.Character
-    local humanoid=character and character:FindFirstChildOfClass('Humanoid')
-    for _,holder in ipairs({me,character,humanoid}) do
-        if holder then
-            for _,name in ipairs({'Stamina','stamina','STAMINA'}) do
-                local maximum=holder:GetAttribute('MaxStamina') or holder:GetAttribute('maxStamina') or 100
-                if type(maximum)~='number' or maximum<=0 then maximum=100 end
-                local value=holder:GetAttribute(name)
-                if type(value)=='number' and value<maximum then
-                    pcall(function()holder:SetAttribute(name,maximum)end)
-                end
-                local obj=holder:FindFirstChild(name)
-                if obj and (obj:IsA('NumberValue') or obj:IsA('IntValue')) and obj.Value<maximum then
-                    pcall(function()obj.Value=maximum end)
+-- Stamina: discover only stamina-related local NumberValues/attributes.
+-- UI meters are excluded; server-controlled stamina cannot be overridden by client changes.
+local staminaStatus='Пока не проверено'
+local staminaScanClock=10
+local staminaUpdateClock=0
+local staminaTargets={}
+local staminaNames={Stamina=true,stamina=true,STAMINA=true,Energy=true,energy=true,
+    Endurance=true,endurance=true,staminaValue=true,StaminaValue=true,
+    CurrentStamina=true,CurrentEnergy=true}
+local function staminaMax(holder,key,oldValue)
+    for _,maxName in ipairs({'MaxStamina','maxStamina','StaminaMax','MaxEnergy','maxEnergy','MaximumStamina'}) do
+        local a=holder:GetAttribute(maxName)
+        if type(a)=='number' and a>0 then return a end
+        local child=holder:FindFirstChild(maxName)
+        if child and (child:IsA('NumberValue') or child:IsA('IntValue')) and child.Value>0 then
+            return child.Value
+        end
+    end
+    return math.max(oldValue,100)
+end
+local function discoverStamina()
+    table.clear(staminaTargets)
+    local roots={me,me.Character}
+    local found=0
+    for _,root in ipairs(roots) do
+        if root then
+            -- Bounded scan; only local player/character, not the whole game or all NPCs.
+            local descendants=root:GetDescendants()
+            table.insert(descendants,1,root)
+            for _,holder in ipairs(descendants) do
+                if found>=35 then break end
+                if not holder:IsA('GuiObject') and not holder:FindFirstAncestorOfClass('ScreenGui') then
+                    if (holder:IsA('NumberValue') or holder:IsA('IntValue')) and staminaNames[holder.Name] then
+                        found+=1
+                        table.insert(staminaTargets,{object=holder,kind='value'})
+                    end
+                    for name in pairs(staminaNames) do
+                        if type(holder:GetAttribute(name))=='number' then
+                            found+=1
+                            table.insert(staminaTargets,{object=holder,kind='attribute',name=name})
+                            if found>=35 then break end
+                        end
+                    end
                 end
             end
         end
+    end
+    staminaStatus=found>0 and ('Найдено локальных значений: '..found) or 'Стамина не найдена в доступных локальных объектах'
+end
+local function updateLocalStamina(dt)
+    if not active then return end
+    if not state.infiniteStamina then
+        staminaScanClock=10
+        if staminaInfoLabel and staminaInfoLabel.Parent then
+            staminaInfoLabel.Text='Стамина: OFF'
+        end
+        return
+    end
+    staminaScanClock+=dt
+    staminaUpdateClock+=dt
+    if staminaScanClock>=3 then
+        staminaScanClock=0
+        discoverStamina()
+    end
+    if staminaUpdateClock>=0.1 then
+        staminaUpdateClock=0
+        local attempts=0
+        for _,target in ipairs(staminaTargets) do
+            local obj=target.object
+            if obj and obj.Parent then
+                if target.kind=='value' then
+                    local maximum=staminaMax(obj.Parent,obj.Name,obj.Value)
+                    if obj.Value<maximum then
+                        pcall(function()obj.Value=maximum end)
+                    end
+                else
+                    local current=obj:GetAttribute(target.name)
+                    if type(current)=='number' then
+                        local maximum=staminaMax(obj,target.name,current)
+                        if current<maximum then
+                            pcall(function()obj:SetAttribute(target.name,maximum) end)
+                        end
+                    end
+                end
+                attempts+=1
+            end
+        end
+        if attempts==0 then staminaStatus='Стамина не найдена в доступных локальных объектах' end
+    end
+    if staminaInfoLabel and staminaInfoLabel.Parent then
+        staminaInfoLabel.Text='Стамина: '..staminaStatus..'. Серверная стамина может не измениться.'
     end
 end
 table.insert(connections,RunService.Heartbeat:Connect(updateLocalStamina))
