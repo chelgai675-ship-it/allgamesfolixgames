@@ -633,7 +633,7 @@ local function clearPage()
     for _,c in ipairs(sliderConnections) do c:Disconnect() end
     table.clear(sliderConnections)
     for _,ch in ipairs(scroll:GetChildren()) do if ch~=layout then ch:Destroy() end end
-    scroll.CanvasPosition=Vector2.zero
+    -- Do not force the list to jump to the top on every click.
 end
 -- Examination leaves Roblox's default camera and rotation in control.
 local function enterExamination()
@@ -809,6 +809,8 @@ local boundAttackCenter = nil
 local boundAttackRadius = 42
 local boundAttackGui = nil
 local function selectPage(name)
+    local samePage=(currentPage==name)
+    local previousScroll=samePage and scroll.CanvasPosition or Vector2.zero
     currentPage=name
     clearPage(); heading.Text=name
     if name=='Home' then
@@ -832,7 +834,16 @@ local function selectPage(name)
         category('EXAMINATION — PLAYER')
         button('Открыть Main / Speed / Fly',function()selectPage('Main')end)
         toggle('Fullbright / Яркое освещение', 'fullbright')
+        toggle('Noclip / Сквозь стены', 'noclip')
+        toggle('Fly / Полёт', 'fly')
+        slider('Fly Speed / Скорость полёта', 'flySpeed', 10, 150, 1)
         category('EXAMINATION — RESPAWN / ANTI-VOID')
+        button('Респавн персонажа / Reset',function()
+            local character=me.Character
+            local hum=character and character:FindFirstChildOfClass('Humanoid')
+            if hum then hum.Health=0 end
+        end)
+        note('Reset запрашивает обычное возрождение персонажа. Миссия может сброситься, если так настроен сервер.')
         button('Сохранить безопасную точку',function()
             local character=me.Character
             local root=character and character:FindFirstChild('HumanoidRootPart')
@@ -1077,7 +1088,12 @@ local function selectPage(name)
         note('Uses R6 walk animation 180426354 with a subtle swagger arm sway. Animations may be overridden by the game.')
     end
     refreshCanvas()
-    task.defer(function() if ui.Parent then applyTheme(selectedTheme) end end)
+    task.defer(function()
+        if ui.Parent then
+            scroll.CanvasPosition=previousScroll
+            applyTheme(selectedTheme)
+        end
+    end)
 end
 -- FOLIX navigation reproduced with native Roblox UI elements (no screenshot sprites).
 -- Game features are accessed via Scripts; gameplay implementations are unchanged.
