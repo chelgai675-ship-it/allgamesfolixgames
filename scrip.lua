@@ -702,6 +702,38 @@ local npcAdded=Workspace.DescendantAdded:Connect(function(obj)
 end)
 table.insert(connections,npcAdded)
 
+-- NPC TP (local): attempt to move a limited number of NPCs in front of the player.
+-- Server-owned NPCs may snap back; damage is ALWAYS evaluated by the game server.
+local npcGroupEnabled=false
+local npcGroupLocation=nil
+local npcGroupLast=0
+local function bringNpcLocally()
+    local ch=me.Character
+    local root=ch and ch:FindFirstChild('HumanoidRootPart')
+    if not root then return 0 end
+    local spot=npcGroupLocation or (root.CFrame*CFrame.new(0,0,-12))
+    local seen={}
+    local moved=0
+    for _,obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA('Humanoid') and obj.Health>0 then
+            local model=obj.Parent
+            if model and model:IsA('Model') and model~=ch
+                and not Players:GetPlayerFromCharacter(model)
+                and model:FindFirstChild('HumanoidRootPart') and not seen[model] then
+                seen[model]=true
+                moved+=1
+                -- Small offsets prevent exact overlap and severe physics collisions.
+                local column=(moved-1)%5-2
+                local row=math.floor((moved-1)/5)
+                pcall(function()
+                    model:PivotTo(spot*CFrame.new(column*3,0,-row*3))
+                end)
+                if moved>=20 then break end
+            end
+        end
+    end
+    return moved
+end
 -- Examination NPC ESP: event-driven tracking instead of scanning the whole map every 2 seconds.
 local npcEspScanVersion=0
 local npcEspConnections={}
@@ -891,8 +923,24 @@ local function selectPage(name)
             selectPage('Examination')
         end)
         note('Подсвечивает NPC и показывает их имена. Игроков не подсвечивает. Цвет зависит от темы Cinema / UwU.')
-        category('NPC GROUP / СБОР NPC')
-        note('NPC перед игроком с реальным уроном: требуется серверная поддержка Examination. Локальная подмена позиции не даёт надёжного урона.')
+        category('NPC TP / СОБРАТЬ БОТОВ')
+        button('NPC TP → передо мной (локально)',function()
+            npcGroupLocation=nil
+            bringNpcLocally()
+        end)
+        button('NPC TP Авто: '..(npcGroupEnabled and 'ON ✓' or 'OFF'),function()
+            npcGroupEnabled=not npcGroupEnabled
+            if npcGroupEnabled then
+                local ch=me.Character
+                local root=ch and ch:FindFirstChild('HumanoidRootPart')
+                npcGroupLocation=root and (root.CFrame*CFrame.new(0,0,-12)) or nil
+                bringNpcLocally()
+            else
+                npcGroupLocation=nil
+            end
+            selectPage('Examination')
+        end)
+        note('Локальный NPC TP: сервер может вернуть NPC назад. Попадания и урон зависят от сервера, даже если NPC виден перед тобой.')
         note('NPC Hitbox: сервер может не учитывать изменённый размер. Настройка ниже влияет на локальную модель.')
         category('EXAMINATION — NPC HEAD SIZE')
         note('Меняется размер настоящей головы NPC только локально; попадания определяет сервер. Большие размеры могут нарушить движение ботов.')
@@ -1246,6 +1294,45 @@ local function targetForCatch()
     end
     return nearestRoot
 end
+-- Reliable Noclip: cache own body parts and enforce before physics simulation.
+local noclipChar=nil
+local noclipParts={}
+local noclipPartAdded=nil
+local function refreshNoclipChar(ch)
+    if ch==noclipChar then return end
+    if noclipPartAdded then noclipPartAdded:Disconnect();noclipPartAdded=nil end
+    noclipChar=ch
+    table.clear(noclipParts)
+    if not ch then return end
+    for _,part in ipairs(ch:GetDescendants()) do
+        if part:IsA('BasePart') then noclipParts[part]=true end
+    end
+    noclipPartAdded=ch.DescendantAdded:Connect(function(part)
+        if part:IsA('BasePart') then noclipParts[part]=true end
+    end)
+end
+table.insert(connections, RunService.Stepped:Connect(function()
+    if not active then return end
+    if not state.noclip then
+        if next(collisionOld) then
+            for part,oldValue in pairs(collisionOld) do
+                if part and part.Parent then part.CanCollide=oldValue end
+                collisionOld[part]=nil
+            end
+        end
+        return
+    end
+    refreshNoclipChar(me.Character)
+    for part in pairs(noclipParts) do
+        if not part.Parent then
+            noclipParts[part]=nil
+            collisionOld[part]=nil
+        else
+            if collisionOld[part]==nil then collisionOld[part]=part.CanCollide end
+            if part.CanCollide then part.CanCollide=false end
+        end
+    end
+end))
 local oldSpeed, oldJump
 local flyOrigin=nil
 local lastRoot
@@ -1389,26 +1476,7 @@ local function frame()
         flyOrigin=nil
         if flyVelocity then flyVelocity:Destroy();flyVelocity=nil end
     end
-    if ch then
-        if state.noclip then
-            -- Scan at most four times a second, not on every rendered frame.
-            noclipScanElapsed=(noclipScanElapsed or 0)+dt
-            if noclipScanElapsed>=0.25 then
-                noclipScanElapsed=0
-                for _,p in ipairs(ch:GetDescendants()) do
-                if p:IsA('BasePart') then
-                    if collisionOld[p]==nil then collisionOld[p]=p.CanCollide end
-                    if p.CanCollide then p.CanCollide=false end
-                end
-            end
-            end
-        elseif next(collisionOld) then
-            for p,collide in pairs(collisionOld) do
-                if p and p.Parent then p.CanCollide=collide end
-                collisionOld[p]=nil
-            end
-        end
-    end
+    -- Noclip physics is handled by Stepped below; no redundant Workspace scans here.
     -- Local indicator for the M1 Catch acquisition zone.
     if state.catch and state.showCatchZone and root and state.zoneAlpha < 1 then
         if not catchZone then
@@ -1761,6 +1829,15 @@ end
 -- Runs just after Roblox's default camera update, countering camera-facing code.
 RunService:BindToRenderStep(backFollowStepName, Enum.RenderPriority.Camera.Value + 10, updateBackFollow)
 
+local npcGroupLoopId=0
+task.spawn(function()
+    while active do
+        task.wait(2)
+        if active and npcGroupEnabled and selectedGame=='Examination' then
+            bringNpcLocally()
+        end
+    end
+end)
 table.insert(connections,RunService.Heartbeat:Connect(frame))
 -- Infinite Stamina removed at user's request.
 
@@ -1806,6 +1883,8 @@ end))
 local function cleanup()
     if not active then return end
     active=false
+    npcGroupEnabled=false
+    if noclipPartAdded then noclipPartAdded:Disconnect();noclipPartAdded=nil end
     RunService:UnbindFromRenderStep(backFollowStepName)
     releaseShiftLock()
     resetWalkJoints()
