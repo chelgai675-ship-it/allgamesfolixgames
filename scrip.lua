@@ -1063,8 +1063,7 @@ local function selectPage(name)
         category('Fly')
         toggle('Fly (WASD + Space/Ctrl)', 'fly')
         slider('Fly Speed', 'flySpeed', 10, 150, 1)
-        slider('Fly Distance / limit', 'flyDistance', 5, 200, 1)
-        note('Fly Distance limits horizontal range from where Fly was enabled. Space rises, LeftCtrl goes down while Fly is on.')
+        note('Fly без ограничения дальности. Space — вверх, Ctrl — вниз. На телефоне используется джойстик.')
         toggle('Jump', 'jump');slider('Jump Power','jumpPower',50,150,1)
         toggle('Basic Jump (repeat on Space)', 'basicJump')
         toggle('Noclip', 'noclip')
@@ -1438,7 +1437,7 @@ local function frame()
         if state.jump then hum.UseJumpPower=true;hum.JumpPower=state.jumpPower
         elseif oldJump and hum.JumpPower==state.jumpPower then hum.JumpPower=oldJump end
     end
-    -- Fly, controlled locally. Distance cap measured from activation point.
+    -- Fly, controlled locally, without a distance cap.
     if state.fly and root and hum and hum.Health>0 then
         if not flyOrigin then flyOrigin=root.Position end
         if not flyVelocity or flyVelocity.Parent~=root then
@@ -1467,10 +1466,7 @@ local function frame()
         if UIS:IsKeyDown(Enum.KeyCode.Space) or hum.Jump then move=move+Vector3.yAxis end
         if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then move=move-Vector3.yAxis end
         if move.Magnitude>0 then move=move.Unit end
-        local outward=root.Position-flyOrigin
-        if outward.Magnitude >= state.flyDistance and move:Dot(outward)>0 then
-            move=move-outward.Unit*math.max(0,move:Dot(outward.Unit))
-        end
+        -- Unlimited Fly: no radius restriction from the activation point.
         flyVelocity.Velocity=move*state.flySpeed
     else
         flyOrigin=nil
