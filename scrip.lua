@@ -28,7 +28,7 @@ local waypointList={}
 local savedPosition=nil
 local tpSelected=nil
 local currentPage='Home'
-local selectedGame='Legends Battleground'
+local selectedGame='Legends Battleground' -- Legends / Jujutsu Shenanigans / Examination
 local selectedTheme='Cinema'
 local examSafeCFrame=nil
 local examAntiVoid=false
@@ -548,7 +548,8 @@ end
 -- Friends are always protected, even if the HIT/IGNORE button is clicked.
 -- While friendship is being checked, the player is temporarily ignored.
 local function isProtected(p)
-    return p and (state.friendAuto[p.UserId] or state.friendPending[p.UserId])
+    return p and (state.friendPending[p.UserId] or
+        (state.friendAuto[p.UserId] and state.manualIgnore[p.UserId]~=false))
 end
 local function ignoredTarget(p)
     return not p or state.ignored[p.UserId] or isProtected(p)
@@ -572,7 +573,8 @@ local function checkFriend(p)
         if ok then
             state.friendAuto[uid]=(friend==true)
             state.friendPending[uid]=nil
-            state.ignored[uid]=(state.friendAuto[uid] or state.manualIgnore[uid]==true)
+            state.ignored[uid]=(state.manualIgnore[uid]==true or
+                (state.friendAuto[uid] and state.manualIgnore[uid]~=false))
         else
             -- Keep this player ignored until friendship can be verified.
             state.friendPending[uid]=true
@@ -685,7 +687,7 @@ local function refreshNpc()
         for i,inst in ipairs(descendants) do
             if not active or not npcEnabled or version~=npcResizeScanVersion then return end
             if inst:IsA('Model') then applyNpc(inst) end
-            if i%120==0 then task.wait() end
+            if i%60==0 then task.wait() end
         end
     end)
 end
@@ -733,7 +735,7 @@ local function addNpcEsp(model)
     glow.Name='FOLIX_Examination_NPC_ESP'
     glow.Adornee=model
     glow.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-    glow.FillTransparency=.85 -- less fill overdraw on mobile
+    glow.FillTransparency=1 -- outline-only ESP: much lower mobile GPU overdraw
     glow.OutlineTransparency=0
     glow.Parent=model
     local bb=Instance.new('BillboardGui')
@@ -785,7 +787,7 @@ local function updateNpcEsp()
         for i,obj in ipairs(descendants) do
             if not active or not npcEspEnabled or selectedGame~='Examination' or version~=npcEspScanVersion then return end
             if obj:IsA('Model') then addNpcEsp(obj) end
-            if i%120==0 then task.wait() end
+            if i%60==0 then task.wait() end
         end
     end)
 end
@@ -819,6 +821,9 @@ local function selectPage(name)
         button('LEGENDS BATTLEGROUND',function()
             selectedGame='Legends Battleground';selectPage('Scripts')
         end)
+        button('JUJUTSU SHENANIGANS (JJS)',function()
+            selectedGame='Jujutsu Shenanigans';state.catch=false;state.realParts=false;selectPage('JJS')
+        end)
         button('EXAMINATION (NPC)',function()
             enterExamination();selectPage('Examination')
         end)
@@ -830,6 +835,21 @@ local function selectPage(name)
             applyTheme('UwU');selectPage('Home')
         end)
         note('Настройки тем и звука также есть во вкладке Settings.')
+    elseif name=='JJS' then
+        category('JUJUTSU SHENANIGANS — ALL FEATURES')
+        note('Профиль JJS: функции Legends перенесены. Урон/хитбоксы и телепортации проверяет сервер игры.')
+        category('Combat / PvP')
+        button('M1 Catch / Следование',function()selectPage('Combat')end)
+        button('Targets / HIT и IGNORE друзей',function()selectPage('Targets')end)
+        category('Movement / Передвижение')
+        button('Speed, Fly, Jump, Noclip, Shift Lock',function()selectPage('Main')end)
+        category('Visuals / Экран')
+        button('Player ESP, Fullbright, Hitbox',function()selectPage('Exploits')end)
+        category('Other / Другое')
+        button('Teleport и закладки',function()selectPage('Teleport')end)
+        button('Custom Animations (R6 only)',function()selectPage('Custom Animations')end)
+        button('Settings / Cinema / UwU',function()selectPage('Settings')end)
+        note('R15-анимации JJS не заменяются классическими анимациями R6; функции зависят от рига.')
     elseif name=='Examination' then
         category('EXAMINATION — PLAYER')
         button('Открыть Main / Speed / Fly',function()selectPage('Main')end)
@@ -887,7 +907,10 @@ local function selectPage(name)
         end)
         button('СБРОС NPC',function()npcEnabled=false;refreshNpc();selectPage('Examination')end)
     elseif name=='Scripts' then
-        if selectedGame=='Examination' then
+        if selectedGame=='Jujutsu Shenanigans' then
+            category('JJS / JUJUTSU SHENANIGANS')
+            button('Открыть функции JJS',function()selectPage('JJS')end)
+        elseif selectedGame=='Examination' then
             category('EXAMINATION')
             button('NPC Hitbox / Размер голов',function()selectPage('Examination')end)
         else
@@ -905,7 +928,10 @@ local function selectPage(name)
             note('M1 Catch отключён в Examination. Для игровых функций выбери Legends Battleground.')
             return
         end
-        category('M1 Catch')
+        category(selectedGame=='Jujutsu Shenanigans' and 'JJS / M1 Catch' or 'M1 Catch')
+        if selectedGame=='Jujutsu Shenanigans' then
+            note('JJS может использовать собственные анимации/захваты. M1 Catch — локальное следование, без гарантии урона; при рывках выключи.')
+        end
         toggle(UIS.TouchEnabled and 'M1 Catch (кнопка УДАР)' or 'M1 Catch (hold left mouse)', 'catch')
         if UIS.TouchEnabled then
             button('📱 Привязать кнопку УДАР', function()
@@ -925,18 +951,22 @@ local function selectPage(name)
         slider('Offset (studs, V60)', 'approach', 1, 5, .1)
         slider('Follow Height', 'followHeight', 0, 5, .1)
         note('Максимальная дистанция выбора цели = Zone Size. Второй ограничитель Target Distance убран.')
-        note('Удерживай M1: ближайший игрок со статусом HIT в зоне выбирается автоматически. Друзья исключены.')
+        note('Удерживай M1: ближайший игрок со статусом HIT в зоне выбирается автоматически. Друзья IGNORE по умолчанию, изменить можно в Targets.')
         button('Refresh Target List',function()selectPage('Combat')end)
         note('M1: поиск цели по дистанции даже при скрытой зоне. Позиция за спиной — попытка, не защита от ударов. Сервер может отклонить быстрое перемещение.')
         category('Hitbox')
         toggle('Grey Hitbox Indicator', 'hitbox')
         slider('Hitbox Size', 'hitSize', 1, 50, 1)
         slider('Hitbox Transparency', 'hitAlpha', .1, 1, .05)
-        toggle('Experimental Real Parts (breaks character visuals)', 'realParts')
+        if selectedGame~='Jujutsu Shenanigans' then
+            toggle('Experimental Real Parts (breaks character visuals)', 'realParts')
+        else
+            note('JJS: изменение физических частей отключено ради стабильности R15 / ragdoll.')
+        end
         note('Grey box = VISUAL ONLY, not an actual server hitbox. Experimental Real Parts changes local limb dimensions and may break physics; server hit registration not guaranteed. Do not enable to fix visuals.')
     elseif name=='Targets' then
         category('TARGET MANAGER (Backstab v60)')
-        note('Нажимай HIT / IGNORE напротив имени. Ближайший доступный HIT выбирается при удержании M1. Друзья всегда IGNORE.')
+        note('HIT / IGNORE: друзья по умолчанию IGNORE, но их можно вручную переключить в HIT. При проверке дружбы цель временно IGNORE.')
         button('Refresh Player List',function()selectPage('Targets')end)
         local players={}
         for _,p in ipairs(Players:GetPlayers()) do
@@ -970,12 +1000,12 @@ local function selectPage(name)
             friendStatusListeners[p]=refreshIgnore
             refreshIgnore()
             ignoreButton.MouseButton1Click:Connect(function()
-                if isProtected(p) then
-                    state.ignored[p.UserId]=true -- auto-ignored friends cannot be hit
-                else
-                    state.ignored[p.UserId]=not state.ignored[p.UserId]
-                    state.manualIgnore[p.UserId]=state.ignored[p.UserId]
+                if state.friendPending[p.UserId] then
+                    -- Wait for friendship lookup before allowing manual override.
+                    return
                 end
+                state.ignored[p.UserId]=not ignoredTarget(p)
+                state.manualIgnore[p.UserId]=state.ignored[p.UserId]
                 refreshIgnore()
             end)
         end
@@ -1000,8 +1030,8 @@ local function selectPage(name)
         toggle('Shift Lock (Shift)','shiftLock')
         note('Interface inspired by XDevHub. Features adapted for Legends Battlegrounds; hit registration is not guaranteed.')
     elseif name=='Info' then
-        category('Legends Battleground')
-        note('Legends Battlegrounds | dynamic map scan; XDev-inspired menu. M1 Catch is experimental and not the obfuscated XDev code.')
+        category(selectedGame=='Jujutsu Shenanigans' and 'Jujutsu Shenanigans' or 'Legends Battleground')
+        note('Общие функции адаптированы для '..selectedGame..'. Урон и перемещения могут ограничиваться сервером.')
         note('Avoid running older folix scripts alongside this one: their loops can continue to modify characters.')
     elseif name=='Settings' then
         category('THEME / ТЕМА')
@@ -1340,7 +1370,14 @@ local function frame()
         if UIS:IsKeyDown(Enum.KeyCode.S) then move=move-look end
         if UIS:IsKeyDown(Enum.KeyCode.D) then move=move+right end
         if UIS:IsKeyDown(Enum.KeyCode.A) then move=move-right end
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then move=move+Vector3.yAxis end
+        if UIS.TouchEnabled or UIS.GamepadEnabled then
+            -- MoveDirection receives the default mobile thumbstick/gamepad input.
+            local stick=hum.MoveDirection
+            if stick.Magnitude>0.05 then
+                move=Vector3.new(stick.X,0,stick.Z)
+            end
+        end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) or hum.Jump then move=move+Vector3.yAxis end
         if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then move=move-Vector3.yAxis end
         if move.Magnitude>0 then move=move.Unit end
         local outward=root.Position-flyOrigin
@@ -1354,11 +1391,16 @@ local function frame()
     end
     if ch then
         if state.noclip then
-            for _,p in ipairs(ch:GetDescendants()) do
+            -- Scan at most four times a second, not on every rendered frame.
+            noclipScanElapsed=(noclipScanElapsed or 0)+dt
+            if noclipScanElapsed>=0.25 then
+                noclipScanElapsed=0
+                for _,p in ipairs(ch:GetDescendants()) do
                 if p:IsA('BasePart') then
                     if collisionOld[p]==nil then collisionOld[p]=p.CanCollide end
-                    p.CanCollide=false
+                    if p.CanCollide then p.CanCollide=false end
                 end
+            end
             end
         elseif next(collisionOld) then
             for p,collide in pairs(collisionOld) do
@@ -1408,7 +1450,7 @@ local function frame()
                     espGui[plr].Adornee=head
                     espGui[plr].Label.Text=plr.DisplayName..'  '..math.floor(eh.Health/math.max(eh.MaxHealth,1)*100)..'%'
                 elseif espGui[plr] then espGui[plr]:Destroy();espGui[plr]=nil end
-                if state.hitbox and state.realParts then
+                if state.hitbox and state.realParts and selectedGame~='Jujutsu Shenanigans' then
                     for _,partName in ipairs({'Torso','Left Arm','Right Arm','Left Leg','Right Leg'}) do
                         local p=enemy:FindFirstChild(partName)
                         if p and p:IsA('BasePart') then
@@ -1821,7 +1863,7 @@ local gamePicker=new('TextButton',{
 round(gamePicker,7)
 local gamePopup=new('Frame',{
     Name='GamePickerPopup',Visible=false,BackgroundColor3=Color3.fromRGB(29,29,32),
-    BorderSizePixel=0,Position=UDim2.fromOffset(204,42),Size=UDim2.fromOffset(204,92),ZIndex=80
+    BorderSizePixel=0,Position=UDim2.fromOffset(204,42),Size=UDim2.fromOffset(204,136),ZIndex=80
 },window)
 round(gamePopup,8)
 local function gameOption(label,y,value,page)
@@ -1834,15 +1876,25 @@ local function gameOption(label,y,value,page)
     },gamePopup)
     round(b,6)
     b.Activated:Connect(function()
-        if value=='Examination' then enterExamination() else selectedGame=value end
-        gamePicker.Text=(value=='Examination' and 'Exam  ▾' or 'Legends  ▾')
+        if value=='Examination' then
+            enterExamination()
+        else
+            selectedGame=value
+            if value=='Jujutsu Shenanigans' then
+                state.realParts=false
+                restore()
+            end
+        end
+        gamePicker.Text=(value=='Examination' and 'Exam  ▾' or
+            (value=='Jujutsu Shenanigans' and 'JJS  ▾' or 'Legends  ▾'))
         gamePopup.Visible=false
         selectPage(page)
         applyTheme(selectedTheme)
     end)
 end
 gameOption('Legends Battleground',5,'Legends Battleground','Scripts')
-gameOption('Examination  /  NPC',49,'Examination','Examination')
+gameOption('Jujutsu Shenanigans',49,'Jujutsu Shenanigans','JJS')
+gameOption('Examination  /  NPC',93,'Examination','Examination')
 gamePicker.Activated:Connect(function()
     gamePopup.Visible=not gamePopup.Visible
     applyTheme(selectedTheme)
