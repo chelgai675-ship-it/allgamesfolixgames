@@ -18,7 +18,7 @@ local state = {
     catch=false, zone=50, zoneAlpha=1, showCatchZone=false, approach=2.4, followHeight=0,
     hitbox=false, hitSize=20, hitAlpha=.9, realParts=false,
     esp=false, speed=false, speedValue=35, jump=false, jumpPower=60,
-    fullbright=false, infiniteStamina=false, followOnlyOnClick=true,
+    fullbright=false, followOnlyOnClick=true,
     fly=false, flySpeed=48, flyDistance=20, basicJump=false, noclip=false, teleportTarget=nil,
     shiftLock=false, watchIdle=false, coolIdle=false, customWalk=false, uwu=true,
     followRange=300, flyHeight=5, windowAlpha=.28, ignored={}, manualIgnore={}, friendAuto={}, friendPending={},
@@ -28,7 +28,6 @@ local waypointList={}
 local savedPosition=nil
 local tpSelected=nil
 local currentPage='Home'
-local staminaInfoLabel=nil
 local selectedGame='Legends Battleground'
 local selectedTheme='Cinema'
 local cinemaSoundEnabled=true
@@ -98,6 +97,7 @@ local active = true
 local ui = Instance.new('ScreenGui')
 ui.Name='LegendsXDevReplicaV3'; ui.ResetOnSpawn=false; ui.IgnoreGuiInset=true; ui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 ui.Parent=CoreGui
+ui.Enabled=true
 local function new(cl, props, parent)
     local o=Instance.new(cl)
     for k,v in pairs(props or {}) do o[k]=v end
@@ -142,8 +142,7 @@ local function updateResponsiveScale()
     if w<50 or h<50 then return end
     local margin=UIS.TouchEnabled and 20 or 36
     responsiveScale.Scale=math.clamp(math.min((w-margin)/850,(h-margin)/580),.08,1)
-    window.AnchorPoint=Vector2.new(.5,.5)
-    window.Position=UDim2.fromScale(.5,.5)
+    -- Do not reset position on viewport updates: that causes visible jumps.
 end
 local rootSizeConnection=screenRoot:GetPropertyChangedSignal('AbsoluteSize'):Connect(updateResponsiveScale)
 ui.Destroying:Connect(function() rootSizeConnection:Disconnect() end)
@@ -403,13 +402,20 @@ local function recolorUi(root, cinematic)
                 or (field=='ScrollBarImageColor3' and obj:IsA('ScrollingFrame'))
             if supports then
                 if saved[field]==nil then saved[field]=obj[field] end
-                obj[field]=cinematic and cinemaColor(saved[field]) or saved[field]
+                if cinematic then
+                    obj[field]=cinemaColor(obj[field])
+                else
+                    -- Restore original UwU palette instead of retaining Cinema grays.
+                    obj[field]=saved[field]
+                end
             end
         end
     end
 end
 -- Theme colors updated on existing elements. This does not touch gameplay callbacks.
 local function applyTheme(theme)
+    cinemaSound:Stop()
+    uwuVoice:Stop()
     selectedTheme=theme
     local pink=(theme=='UwU')
     local accent=pink and Color3.fromRGB(246,55,164) or Color3.fromRGB(240,240,240)
@@ -452,6 +458,9 @@ local function toggle(label,key)
         playUwu()
         btn.BackgroundColor3=state[key] and blue or Color3.fromRGB(72,76,82)
         dot.Position=UDim2.fromOffset(state[key] and 21 or 3,3)
+        if selectedTheme=='Cinema' then
+            btn.BackgroundColor3=cinemaColor(btn.BackgroundColor3)
+        end
         if key=='realParts' or key=='hitbox' then
             for p,s in pairs(originalParts) do
                 if p and p.Parent then p.Size=s.size; p.CanCollide=s.collide end
@@ -818,9 +827,9 @@ local function selectPage(name)
         note('Настройки тем и звука также есть во вкладке Settings.')
     elseif name=='Examination' then
         category('EXAMINATION — PLAYER')
+        button('Открыть Main / Speed / Fly',function()selectPage('Main')end)
+        button('Открыть Combat / M1 Catch',function()selectPage('Combat')end)
         toggle('Fullbright / Яркое освещение', 'fullbright')
-        toggle('Infinite Stamina / Бесконечная стамина', 'infiniteStamina')
-        staminaInfoLabel=note('Стамина: включи галочку для проверки локальных значений. Серверная стамина может не измениться.')
         category('EXAMINATION — NPC ESP')
         button('NPC ESP: '..(npcEspEnabled and 'ON ✓' or 'OFF'),function()
             npcEspEnabled=not npcEspEnabled
@@ -828,6 +837,9 @@ local function selectPage(name)
             selectPage('Examination')
         end)
         note('Подсвечивает NPC и показывает их имена. Игроков не подсвечивает. Цвет зависит от темы Cinema / UwU.')
+        category('NPC GROUP / СБОР NPC')
+        note('NPC перед игроком с реальным уроном: требуется серверная поддержка Examination. Локальная подмена позиции не даёт надёжного урона.')
+        note('NPC Hitbox: сервер может не учитывать изменённый размер. Настройка ниже влияет на локальную модель.')
         category('EXAMINATION — NPC HEAD SIZE')
         note('Меняется размер настоящей головы NPC только локально; попадания определяет сервер. Большие размеры могут нарушить движение ботов.')
         button('NPC HEAD: '..(npcEnabled and 'ON ✓' or 'OFF'),function()
@@ -944,7 +956,7 @@ local function selectPage(name)
         toggle('Camera Orbit / Fixed Facing (Shift)', 'shiftLock')
         note('Shift = free shoulder camera. During M1 Catch your character faces the opponent\'s back regardless of camera direction. Ctrl opens menu.')
     elseif name=='Exploits' then
-        category('Visuals');toggle('Player ESP', 'esp');toggle('Fullbright','fullbright');toggle('Infinite Stamina','infiniteStamina')
+        category('Visuals');toggle('Player ESP', 'esp');toggle('Fullbright','fullbright')
         category('Movement');toggle('Fly', 'fly');slider('Fly Speed','flySpeed',10,150,1)
         toggle('Basic Jump','basicJump');toggle('Noclip','noclip')
         toggle('Shift Lock (Shift)','shiftLock')
@@ -962,7 +974,9 @@ local function selectPage(name)
             applyTheme('UwU');selectPage('Settings')
         end)
         button('Звук Cinema: '..(cinemaSoundEnabled and 'ON' or 'OFF'),function()
-            cinemaSoundEnabled=not cinemaSoundEnabled;selectPage('Settings')
+            cinemaSoundEnabled=not cinemaSoundEnabled
+            if not cinemaSoundEnabled then cinemaSound:Stop() end
+            selectPage('Settings')
         end)
         category('UwU')
         toggle('🔊 Звук UwU (ВКЛ/ВЫКЛ)', 'uwu')
@@ -1654,100 +1668,8 @@ end
 RunService:BindToRenderStep(backFollowStepName, Enum.RenderPriority.Camera.Value + 10, updateBackFollow)
 
 table.insert(connections,RunService.Heartbeat:Connect(frame))
--- Stamina: discover only stamina-related local NumberValues/attributes.
--- UI meters are excluded; server-controlled stamina cannot be overridden by client changes.
-local staminaStatus='Пока не проверено'
-local staminaScanClock=10
-local staminaUpdateClock=0
-local staminaTargets={}
-local staminaNames={Stamina=true,stamina=true,STAMINA=true,Energy=true,energy=true,
-    Endurance=true,endurance=true,staminaValue=true,StaminaValue=true,
-    CurrentStamina=true,CurrentEnergy=true}
-local function staminaMax(holder,key,oldValue)
-    for _,maxName in ipairs({'MaxStamina','maxStamina','StaminaMax','MaxEnergy','maxEnergy','MaximumStamina'}) do
-        local a=holder:GetAttribute(maxName)
-        if type(a)=='number' and a>0 then return a end
-        local child=holder:FindFirstChild(maxName)
-        if child and (child:IsA('NumberValue') or child:IsA('IntValue')) and child.Value>0 then
-            return child.Value
-        end
-    end
-    return math.max(oldValue,100)
-end
-local function discoverStamina()
-    table.clear(staminaTargets)
-    local roots={me,me.Character}
-    local found=0
-    for _,root in ipairs(roots) do
-        if root then
-            -- Bounded scan; only local player/character, not the whole game or all NPCs.
-            local descendants=root:GetDescendants()
-            table.insert(descendants,1,root)
-            for _,holder in ipairs(descendants) do
-                if found>=35 then break end
-                if not holder:IsA('GuiObject') and not holder:FindFirstAncestorOfClass('ScreenGui') then
-                    if (holder:IsA('NumberValue') or holder:IsA('IntValue')) and staminaNames[holder.Name] then
-                        found+=1
-                        table.insert(staminaTargets,{object=holder,kind='value'})
-                    end
-                    for name in pairs(staminaNames) do
-                        if type(holder:GetAttribute(name))=='number' then
-                            found+=1
-                            table.insert(staminaTargets,{object=holder,kind='attribute',name=name})
-                            if found>=35 then break end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    staminaStatus=found>0 and ('Найдено локальных значений: '..found) or 'Стамина не найдена в доступных локальных объектах'
-end
-local function updateLocalStamina(dt)
-    if not active then return end
-    if not state.infiniteStamina then
-        staminaScanClock=10
-        if staminaInfoLabel and staminaInfoLabel.Parent then
-            staminaInfoLabel.Text='Стамина: OFF'
-        end
-        return
-    end
-    staminaScanClock+=dt
-    staminaUpdateClock+=dt
-    if staminaScanClock>=3 then
-        staminaScanClock=0
-        discoverStamina()
-    end
-    if staminaUpdateClock>=0.1 then
-        staminaUpdateClock=0
-        local attempts=0
-        for _,target in ipairs(staminaTargets) do
-            local obj=target.object
-            if obj and obj.Parent then
-                if target.kind=='value' then
-                    local maximum=staminaMax(obj.Parent,obj.Name,obj.Value)
-                    if obj.Value<maximum then
-                        pcall(function()obj.Value=maximum end)
-                    end
-                else
-                    local current=obj:GetAttribute(target.name)
-                    if type(current)=='number' then
-                        local maximum=staminaMax(obj,target.name,current)
-                        if current<maximum then
-                            pcall(function()obj:SetAttribute(target.name,maximum) end)
-                        end
-                    end
-                end
-                attempts+=1
-            end
-        end
-        if attempts==0 then staminaStatus='Стамина не найдена в доступных локальных объектах' end
-    end
-    if staminaInfoLabel and staminaInfoLabel.Parent then
-        staminaInfoLabel.Text='Стамина: '..staminaStatus..'. Серверная стамина может не измениться.'
-    end
-end
-table.insert(connections,RunService.Heartbeat:Connect(updateLocalStamina))
+-- Infinite Stamina removed at user's request.
+
 table.insert(connections,RunService.RenderStepped:Connect(animationAndCamera))
 -- Friend requests can be accepted while both players are already in the server.
 -- A one-time PlayerAdded lookup misses those changes, so refresh periodically.
