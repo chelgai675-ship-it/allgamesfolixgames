@@ -30,6 +30,9 @@ local tpSelected=nil
 local currentPage='Home'
 local selectedGame='Legends Battleground'
 local selectedTheme='Cinema'
+local examSafeCFrame=nil
+local examAntiVoid=false
+local lastVoidRescue=0
 local cinemaSoundEnabled=true
 local npcEnabled=false
 local npcEspEnabled=false
@@ -828,8 +831,28 @@ local function selectPage(name)
     elseif name=='Examination' then
         category('EXAMINATION — PLAYER')
         button('Открыть Main / Speed / Fly',function()selectPage('Main')end)
-        button('Открыть Combat / M1 Catch',function()selectPage('Combat')end)
         toggle('Fullbright / Яркое освещение', 'fullbright')
+        category('EXAMINATION — RESPAWN / ANTI-VOID')
+        button('Сохранить безопасную точку',function()
+            local character=me.Character
+            local root=character and character:FindFirstChild('HumanoidRootPart')
+            if root then examSafeCFrame=root.CFrame end
+            selectPage('Examination')
+        end)
+        button('Вернуться к точке'..(examSafeCFrame and ' ✓' or ' (не сохранена)'),function()
+            local character=me.Character
+            local root=character and character:FindFirstChild('HumanoidRootPart')
+            if root and examSafeCFrame then
+                root.AssemblyLinearVelocity=Vector3.zero
+                root.AssemblyAngularVelocity=Vector3.zero
+                root.CFrame=examSafeCFrame
+            end
+        end)
+        button('Anti-Void: '..(examAntiVoid and 'ON ✓' or 'OFF'),function()
+            examAntiVoid=not examAntiVoid
+            selectPage('Examination')
+        end)
+        note('Anti-Void возвращает к сохранённой точке при падении ниже карты. Это не завершает миссию и не гарантирует серверный респавн.')
         category('EXAMINATION — NPC ESP')
         button('NPC ESP: '..(npcEspEnabled and 'ON ✓' or 'OFF'),function()
             npcEspEnabled=not npcEspEnabled
@@ -867,6 +890,10 @@ local function selectPage(name)
         button('◉  Targets',function()selectPage('Targets')end)
         end
     elseif name=='Combat' then
+        if selectedGame=='Examination' then
+            note('M1 Catch отключён в Examination. Для игровых функций выбери Legends Battleground.')
+            return
+        end
         category('M1 Catch')
         toggle(UIS.TouchEnabled and 'M1 Catch (кнопка УДАР)' or 'M1 Catch (hold left mouse)', 'catch')
         if UIS.TouchEnabled then
@@ -1263,6 +1290,15 @@ local function frame()
     local ch=me.Character
     local hum=ch and ch:FindFirstChildOfClass('Humanoid')
     local root=ch and ch:FindFirstChild('HumanoidRootPart')
+    if selectedGame=='Examination' and examAntiVoid and root and examSafeCFrame then
+        local floorY=Workspace.FallenPartsDestroyHeight
+        if root.Position.Y < floorY+30 and os.clock()-lastVoidRescue>2 then
+            lastVoidRescue=os.clock()
+            root.AssemblyLinearVelocity=Vector3.zero
+            root.AssemblyAngularVelocity=Vector3.zero
+            root.CFrame=examSafeCFrame
+        end
+    end
     if hum then
         if hum~=lastRoot then oldSpeed=hum.WalkSpeed;oldJump=hum.JumpPower;lastRoot=hum end
         if state.speed then hum.WalkSpeed=state.speedValue elseif oldSpeed and hum.WalkSpeed==state.speedValue then hum.WalkSpeed=oldSpeed end
