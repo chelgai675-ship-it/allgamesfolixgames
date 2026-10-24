@@ -1,25 +1,52 @@
--- FOLIX AUTO-MONTHLY KEY (UTC).
--- Generates a different deterministic key from YEAR + MONTH.
--- No annual reset and no hardcoded 2026 list.
--- Uses system-supported UTC dates; extremely large years beyond system clock limits are not supported.
+-- FOLIX MONTHLY KEY (UTC) from October 2026 through September 2029.
+-- Each month uses exactly the key in the user-provided table.
 -- Client-side access gates can be inspected and bypassed: this is not DRM.
 do
     local P=game:GetService('Players')
     local player=P.LocalPlayer
     if not player then return end
+    -- Fixed list of monthly keys, 2026-10 through 2029-09 (UTC).
+    local MONTHLY_KEYS = {
+            ['2026-10']='XLPH-2KBZ-6LZB',
+            ['2026-11']='8Y82-MLJ4-9NRP',
+            ['2026-12']='HCRL-9NR8-CPH3',
+            ['2027-01']='TR95-UPYB-GR9E',
+            ['2027-02']='45SP-FQ7F-KSZS',
+            ['2027-03']='EJB8-2SDJ-NUR6',
+            ['2027-04']='PWUS-MTLN-SWHJ',
+            ['2027-05']='YBDB-9UTR-VXAV',
+            ['2027-06']='APVV-UW2V-YZ29',
+            ['2027-07']='K4EE-FX9Y-42SM',
+            ['2027-08']='UGXY-2ZG4-74JZ',
+            ['2027-09']='6VGH-N2P7-A5AC',
+            ['2027-10']='F9Z3-93WB-E72Q',
+            ['2027-11']='RNJL-U55E-H8S4',
+            ['2027-12']='2226-F6BJ-LAJG',
+            ['2028-01']='BEKP-27JM-QCAT',
+            ['2028-02']='MT49-N9RR-TD27',
+            ['2028-03']='W7MS-9AYU-WFSK',
+            ['2028-04']='7L6C-UC7X-2GJX',
+            ['2028-05']='HYPV-FDE3-5JAA',
+            ['2028-06']='SD7F-2EM6-8K2N',
+            ['2028-07']='4RQY-NGUA-BMS2',
+            ['2028-08']='D69J-9H3D-FPJE',
+            ['2028-09']='NJS3-UJ9H-JQAR',
+            ['2028-10']='YXBM-FLGL-MS25',
+            ['2028-11']='9BT6-2MPQ-RTSH',
+            ['2028-12']='JQCQ-NPWT-UVJV',
+            ['2029-01']='U4V9-9Q5X-XWA8',
+            ['2029-02']='5GET-URC2-3Y2L',
+            ['2029-03']='FVXC-FTK6-6ZSY',
+            ['2029-04']='Q9GW-2US9-93JC',
+            ['2029-05']='ZNYF-NVZD-D5AP',
+            ['2029-06']='B2HZ-9X7G-G623',
+            ['2029-07']='LF2J-UYEL-K8SF',
+            ['2029-08']='VTK4-F2MP-P9JT',
+            ['2029-09']='784M-33UT-SBA6',
+    }
     local function currentKey()
-        -- UTC calendar month: new key on the 1st at 00:00 UTC.
         local now=os.date('!*t',os.time())
-        local monthId=now.year*12+now.month
-        local number=(monthId*48271+76123)%2147483647
-        local alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-        local chars={}
-        for i=1,12 do
-            number=(number*16807+97)%2147483647
-            local idx=(number%#alphabet)+1
-            chars[i]=alphabet:sub(idx,idx)
-        end
-        return table.concat(chars,1,4)..'-'..table.concat(chars,5,8)..'-'..table.concat(chars,9,12)
+        return MONTHLY_KEYS[string.format('%04d-%02d',now.year,now.month)]
     end
     local parent=player:WaitForChild('PlayerGui')
     local previous=parent:FindFirstChild('FolixMonthlyKeyGate')
@@ -60,7 +87,7 @@ do
         return t
     end
     label('Title','FOLIX  •  KEY SYSTEM',12,35,21)
-    label('Subtitle','Ключ меняется 1-го числа каждого месяца (UTC)',49,32,12,Color3.fromRGB(184,184,194))
+    label('Subtitle','Ключи: октябрь 2026 — сентябрь 2029 (UTC)',49,32,12,Color3.fromRGB(184,184,194))
     local input=Instance.new('TextBox')
     input.Name='KeyInput';input.ClearTextOnFocus=false
     input.PlaceholderText='XXXX-XXXX-XXXX';input.Text=''
@@ -84,11 +111,11 @@ do
     local event=Instance.new('BindableEvent')
     local function checkKey()
         local cleaned=input.Text:upper():gsub('%s+','')
-        if cleaned==currentKey() then
+        if currentKey() and cleaned==currentKey() then
             unlocked=true
             event:Fire()
         else
-            feedback.Text='Неверный ключ или закончился месяц'
+            feedback.Text=currentKey() and 'Неверный ключ для текущего месяца' or 'Срок списка ключей закончился'
             feedback.TextColor3=Color3.fromRGB(255,116,116)
         end
     end
