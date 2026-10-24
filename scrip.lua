@@ -29,7 +29,7 @@ end
 if getgenv and getgenv().LegendsXDevReplicaStop then pcall(getgenv().LegendsXDevReplicaStop) end
 local state = {
     catch=false, zone=50, zoneAlpha=1, showCatchZone=false, approach=2.4, followHeight=0,
-    hitbox=false, hitSize=20, hitAlpha=.9, realParts=false,
+    hitbox=false, hitSize=20, hitAlpha=.9, realParts=false, shotAssist=false,
     esp=false, speed=false, speedValue=35, jump=false, jumpPower=60,
     fullbright=false, followOnlyOnClick=true,
     fly=false, flySpeed=48, flyDistance=20, basicJump=false, noclip=false, teleportTarget=nil,
@@ -1166,6 +1166,7 @@ function selectPage(name)
         note('M1: поиск цели по дистанции даже при скрытой зоне. Позиция за спиной — попытка, не защита от ударов. Сервер может отклонить быстрое перемещение.')
         category('Hitbox')
         toggle('Grey Hitbox Indicator', 'hitbox')
+        toggle('Aim to body through grey box (experimental)', 'shotAssist')
         slider('Hitbox Size', 'hitSize', 1, 50, 1)
         slider('Hitbox Transparency', 'hitAlpha', .1, 1, .05)
         if selectedGame~='Jujutsu Shenanigans' then
@@ -1173,7 +1174,7 @@ function selectPage(name)
         else
             note('JJS: изменение физических частей отключено ради стабильности R15 / ragdoll.')
         end
-        note('Grey box = VISUAL ONLY, not an actual server hitbox. Experimental Real Parts changes local limb dimensions and may break physics; server hit registration not guaranteed. Do not enable to fix visuals.')
+        note('Grey box is visual. Aim assist points toward a REAL body part when aiming through the cube while firing. Server hit registration depends on the game.')
     elseif name=='Targets' then
         category('TARGET MANAGER (Backstab v60)')
         note('HIT / IGNORE: друзья по умолчанию IGNORE, но их можно вручную переключить в HIT. При проверке дружбы цель временно IGNORE.')
@@ -1986,6 +1987,67 @@ function updateBackFollow()
     root.CFrame=desired
     root.AssemblyAngularVelocity=Vector3.zero
 end
+-- Optional client-side shot-direction assist. Does not change server hitboxes.
+-- Handles the camera origin being INSIDE the enlarged local cube too.
+shotAssistHeld=false
+function rayHitsGreyCube(root, origin, direction, size)
+    local p=root.CFrame:PointToObjectSpace(origin)
+    local d=root.CFrame:VectorToObjectSpace(direction)
+    local half=size*.5
+    local near=0
+    local far=1000
+    for _,axis in ipairs({'X','Y','Z'}) do
+        local a=p[axis]
+        local v=d[axis]
+        if math.abs(v)<0.00001 then
+            if a < -half or a > half then return nil end
+        else
+            local t1=(-half-a)/v
+            local t2=(half-a)/v
+            if t1>t2 then t1,t2=t2,t1 end
+            near=math.max(near,t1)
+            far=math.min(far,t2)
+            if near>far then return nil end
+        end
+    end
+    return near
+end
+function correctAimWithinGreyBox()
+    if not active or not state.hitbox or not state.shotAssist or not shotAssistHeld then return end
+    local cam=Workspace.CurrentCamera
+    if not cam then return end
+    local origin=cam.CFrame.Position
+    local direction=cam.CFrame.LookVector
+    local best=math.huge
+    local destination=nil
+    for _,other in ipairs(Players:GetPlayers()) do
+        if other~=me then
+            local char=other.Character
+            local root=char and char:FindFirstChild('HumanoidRootPart')
+            local hum=char and char:FindFirstChildOfClass('Humanoid')
+            if root and hum and hum.Health>0 then
+                local t=rayHitsGreyCube(root,origin,direction,state.hitSize)
+                if t and t<best then
+                    local body=char:FindFirstChild('Head') or root
+                    best=t
+                    destination=body.Position
+                end
+            end
+        end
+    end
+    if destination and (destination-origin).Magnitude>.01 then
+        cam.CFrame=CFrame.lookAt(origin,destination)
+    end
+end
+table.insert(connections, UIS.InputBegan:Connect(function(input,consumed)
+    if not consumed and input.UserInputType==Enum.UserInputType.MouseButton1 then
+        shotAssistHeld=true
+    end
+end))
+table.insert(connections, UIS.InputEnded:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 then shotAssistHeld=false end
+end))
+RunService:BindToRenderStep('MaximkaGreyBoxShotAssist',Enum.RenderPriority.Camera.Value+20,correctAimWithinGreyBox)
 -- Runs just after Roblox's default camera update, countering camera-facing code.
 RunService:BindToRenderStep(backFollowStepName, Enum.RenderPriority.Camera.Value + 10, updateBackFollow)
 
@@ -2046,6 +2108,7 @@ function cleanup()
     npcGroupEnabled=false
     if noclipPartAdded then noclipPartAdded:Disconnect();noclipPartAdded=nil end
     RunService:UnbindFromRenderStep(backFollowStepName)
+    RunService:UnbindFromRenderStep('MaximkaGreyBoxShotAssist')
     releaseShiftLock()
     resetWalkJoints()
     resetPose()
