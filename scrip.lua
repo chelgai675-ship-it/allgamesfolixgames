@@ -8,7 +8,7 @@ setfenv(1, __folixSharedEnv)
 -- NPC Rally, Premium and themes preserved.
 -- ROBLOX MAXIMKA pink reference GUI, rebuilt from user-provided visual. Original mechanics preserved.
 -- Legends Battleground | XDev-inspired menu (independent implementation)
--- Local client script. Visual hitbox is NOT guaranteed to extend server hit range.
+-- Local client script. Visual hitbox does not modify server hit detection.
 -- V16: Larger anime background; M1 zone visibility separate from targeting; zone is acquisition radius, not damage range.
 -- Re-run safely replaces prior instance of THIS UI only.
 local Players = game:GetService('Players')
@@ -54,7 +54,41 @@ local npcSize=4
 local npcOriginals={}
 local flyVelocity=nil
 local collisionOld={}
-local lightingOld={Brightness=Lighting.Brightness, ClockTime=Lighting.ClockTime, FogEnd=Lighting.FogEnd}
+local lightingOld={
+    Brightness=Lighting.Brightness, ClockTime=Lighting.ClockTime,
+    FogEnd=Lighting.FogEnd, Ambient=Lighting.Ambient,
+    OutdoorAmbient=Lighting.OutdoorAmbient, ExposureCompensation=Lighting.ExposureCompensation,
+    GlobalShadows=Lighting.GlobalShadows
+}
+local atmosphereOld={}
+for _,effect in ipairs(Lighting:GetChildren()) do
+    if effect:IsA('Atmosphere') then
+        atmosphereOld[effect]={Density=effect.Density, Haze=effect.Haze, Glare=effect.Glare}
+    end
+end
+local function applyBright(on)
+    if on then
+        Lighting.Brightness=4
+        Lighting.ClockTime=14
+        Lighting.FogEnd=100000
+        Lighting.Ambient=Color3.fromRGB(255,255,255)
+        Lighting.OutdoorAmbient=Color3.fromRGB(255,255,255)
+        Lighting.ExposureCompensation=1
+        Lighting.GlobalShadows=false
+        for atm in pairs(atmosphereOld) do
+            if atm.Parent then atm.Density=0;atm.Haze=0;atm.Glare=0 end
+        end
+    else
+        for property,value in pairs(lightingOld) do
+            Lighting[property]=value
+        end
+        for atm,values in pairs(atmosphereOld) do
+            if atm.Parent then
+                for property,value in pairs(values) do atm[property]=value end
+            end
+        end
+    end
+end
 local catchZone
 local connections = {}
 local actionPose = nil
@@ -536,6 +570,7 @@ local function toggle(label,key)
         if selectedTheme=='Cinema' then
             btn.BackgroundColor3=cinemaColor(btn.BackgroundColor3)
         end
+        if key=='fullbright' then applyBright(state.fullbright) end
         if key=='realParts' or key=='hitbox' then
             for p,s in pairs(originalParts) do
                 if p and p.Parent then p.Size=s.size; p.CanCollide=s.collide end
@@ -1665,15 +1700,9 @@ function frame()
     end
     end -- player effect loop
     if not (state.hitbox and state.realParts) and next(originalParts) then restore() end
-    -- Avoid redundant per-frame property writes that may trigger other scripts.
+    -- Refresh while enabled: some games dynamically override Lighting settings.
     if state.fullbright then
-        if Lighting.Brightness~=3 then Lighting.Brightness=3 end
-        if Lighting.ClockTime~=14 then Lighting.ClockTime=14 end
-        if Lighting.FogEnd~=100000 then Lighting.FogEnd=100000 end
-    else
-        if Lighting.Brightness~=lightingOld.Brightness then Lighting.Brightness=lightingOld.Brightness end
-        if Lighting.ClockTime~=lightingOld.ClockTime then Lighting.ClockTime=lightingOld.ClockTime end
-        if Lighting.FogEnd~=lightingOld.FogEnd then Lighting.FogEnd=lightingOld.FogEnd end
+        applyBright(true)
     end
     if state.windowAlpha and window.BackgroundTransparency~=state.windowAlpha then window.BackgroundTransparency=state.windowAlpha end
 end
@@ -2024,7 +2053,7 @@ function cleanup()
     restore()
     if flyVelocity then flyVelocity:Destroy();flyVelocity=nil end
     for p,c in pairs(collisionOld) do if p and p.Parent then p.CanCollide=c end end
-    Lighting.Brightness=lightingOld.Brightness;Lighting.ClockTime=lightingOld.ClockTime;Lighting.FogEnd=lightingOld.FogEnd
+    applyBright(false)
     if catchZone then catchZone:Destroy();catchZone=nil end
     for _,c in ipairs(connections) do pcall(function()c:Disconnect()end)end
     for _,c in ipairs(sliderConnections) do pcall(function()c:Disconnect()end)end
