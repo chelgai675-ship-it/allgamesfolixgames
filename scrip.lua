@@ -345,6 +345,7 @@ royalSound.Name='RobloxMaximkaRoyalVoice'
 royalSound.Volume=3
 royalSound.SoundId=fileAsset('folix_royal_kill.mp3',ROYAL_KILL_SOUND_B64) or ''
 royalSound.Parent=ui
+if royalSound.SoundId=='' then warn('[FOLIX] Kill audio unavailable: executor does not support local sound assets') end
 ROYAL_KILL_SOUND_B64=nil
 
 local function playRoyalKillSound()
@@ -358,14 +359,23 @@ end
 local royalKillConnections={}
 local monitoredHumanoids=setmetatable({}, {__mode='k'})
 local function isMyKill(humanoid)
-    -- Roblox's conventional damage tagging is named creator / Creator.
-    for _,name in ipairs({'creator','Creator'}) do
-        local owner=humanoid:FindFirstChild(name)
-        if owner and owner:IsA('ObjectValue') and owner.Value==me then
-            return true
+    -- Only explicit replicated attribution counts as a confirmed kill.
+    local character=humanoid.Parent
+    local function check(container)
+        if not container then return false end
+        for _,name in ipairs({'creator','Creator','killer','Killer','LastAttacker','lastAttacker'}) do
+            local value=container:FindFirstChild(name)
+            if value then
+                if value:IsA('ObjectValue') and (value.Value==me or value.Value==me.Character) then return true end
+                if value:IsA('StringValue') and (value.Value==me.Name or value.Value==tostring(me.UserId)) then return true end
+                if value:IsA('IntValue') and value.Value==me.UserId then return true end
+            end
+            local ok,attribute=pcall(function() return container:GetAttribute(name) end)
+            if ok and (attribute==me.UserId or attribute==me.Name or attribute==tostring(me.UserId)) then return true end
         end
+        return false
     end
-    return false
+    return check(humanoid) or check(character)
 end
 -- Local-only kneeling effect. Works with standard R6 and R15 rigs,
 -- independently of the victim's orientation at death.
@@ -453,13 +463,24 @@ local function monitorRoyalHumanoid(h)
     local model=h.Parent
     if not model or model==me.Character then return end
     monitoredHumanoids[h]=true
+    local handled=false
+    local function tryConfirmedKill()
+        if handled or not isMyKill(h) then return end
+        handled=true
+        playRoyalKillSound()
+        local ok,err=pcall(showLocalKneel,h)
+        if not ok then warn('[FOLIX] Kneel visual failed:',err) end
+    end
     local connection=h.Died:Connect(function()
-        if isMyKill(h) then
-            playRoyalKillSound()
-            showLocalKneel(h)
-        end
+        tryConfirmedKill()
+        -- Some games replicate attribution one or two frames after death.
+        task.delay(0.2,tryConfirmedKill)
+        task.delay(0.65,tryConfirmedKill)
     end)
     table.insert(royalKillConnections,connection)
+    table.insert(royalKillConnections,h.HealthChanged:Connect(function(health)
+        if health<=0 then tryConfirmedKill() end
+    end))
 end
 for _,obj in ipairs(Workspace:GetDescendants()) do
     if obj:IsA('Humanoid') then monitorRoyalHumanoid(obj) end
