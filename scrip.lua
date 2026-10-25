@@ -367,13 +367,56 @@ local function isMyKill(humanoid)
     end
     return false
 end
+-- Client-only kneeling after an attributed elimination; never changes the real character.
+local Debris=game:GetService('Debris')
+local function showLocalKneel(h)
+    local character=h.Parent
+    if not character or not character:IsA('Model') then return end
+    local pivot=character:GetPivot()
+    local oldArchivable=character.Archivable
+    character.Archivable=true
+    local ok,ghost=pcall(function() return character:Clone() end)
+    character.Archivable=oldArchivable
+    if not ok or not ghost then return end
+    ghost.Name='FOLIX_ClientOnlyKneel'
+    for _,item in ipairs(ghost:GetDescendants()) do
+        if item:IsA('BaseScript') or item:IsA('Sound') or item:IsA('Tool') then
+            item:Destroy()
+        elseif item:IsA('BasePart') then
+            item.Anchored=true
+            item.CanCollide=false
+            item.CanTouch=false
+            item.CanQuery=false
+        elseif item:IsA('Humanoid') then
+            item.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
+            item.BreakJointsOnDeath=false
+        end
+    end
+    ghost.Parent=Workspace -- only this client sees this clone
+    ghost:PivotTo(pivot * CFrame.new(0,-1.3,0))
+    for _,joint in ipairs(ghost:GetDescendants()) do
+        if joint:IsA('Motor6D') then
+            if joint.Name=='RightHip' or joint.Name=='LeftHip' then
+                joint.C0=joint.C0*CFrame.Angles(math.rad(-85),0,0)
+            elseif joint.Name=='RightKnee' or joint.Name=='LeftKnee' then
+                joint.C0=joint.C0*CFrame.Angles(math.rad(110),0,0)
+            elseif joint.Name=='Waist' then
+                joint.C0=joint.C0*CFrame.Angles(math.rad(12),0,0)
+            end
+        end
+    end
+    Debris:AddItem(ghost,4)
+end
 local function monitorRoyalHumanoid(h)
     if monitoredHumanoids[h] or not h:IsA('Humanoid') then return end
     local model=h.Parent
     if not model or model==me.Character then return end
     monitoredHumanoids[h]=true
     local connection=h.Died:Connect(function()
-        if isMyKill(h) then playRoyalKillSound() end
+        if isMyKill(h) then
+            playRoyalKillSound()
+            showLocalKneel(h)
+        end
     end)
     table.insert(royalKillConnections,connection)
 end
