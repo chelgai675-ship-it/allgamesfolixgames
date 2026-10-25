@@ -1197,7 +1197,8 @@ function selectPage(name)
         category('THE STRONGEST BATTLEGROUNDS — TSB')
         note('Профиль TSB: функции Legends доступны отдельно. Эффект коленей и звук включаются при распознанном убийстве, но подтверждение зависит от игры.')
         category('Combat / TSB')
-        button('Combat / M1 Catch',function()selectPage('Combat')end)
+        toggle('TSB M1 Catch (hold left mouse / attack)', 'catch')
+        button('Настройки M1 / радиус / следование',function()selectPage('Combat')end)
         button('Targets / HIT / IGNORE',function()selectPage('Targets')end)
         category('Movement / Движение')
         button('Speed / Fly / Jump / Noclip',function()selectPage('Main')end)
@@ -1208,7 +1209,7 @@ function selectPage(name)
         button('Custom Animations',function()selectPage('Custom Animations')end)
         button('Kill Sound / Settings',function()selectPage('Settings')end)
         button('Общий список функций Legends',function()selectPage('Scripts')end)
-        note('R6/R15 и регистрация атак зависят от сервера TSB; эффекты убийства локальные.')
+        note('TSB M1: держи ЛКМ/кнопку удара рядом с целью. Позиция на 2.7–3.4 studs; попадания подтверждает сервер.')
     elseif name=='JJS' then
         category('JUJUTSU SHENANIGANS — ALL FEATURES')
         note('Профиль JJS: функции Legends перенесены. Урон/хитбоксы и телепортации проверяет сервер игры.')
@@ -1655,6 +1656,28 @@ function targetForCatch()
                 if distance<=bestDistance then
                     nearestRoot=root
                     bestDistance=distance
+                end
+            end
+        end
+    end
+    -- TSB also has training dummies that do not belong to Players.
+    -- A spatial query avoids searching the entire Workspace every frame.
+    if selectedGame=='The Strongest Battlegrounds' then
+        local candidates=Workspace:GetPartBoundsInRadius(myRoot.Position,maxDistance)
+        local checked={}
+        for _,part in ipairs(candidates) do
+            local model=part:FindFirstAncestorOfClass('Model')
+            if model and not checked[model] and model~=me.Character then
+                checked[model]=true
+                local human=model:FindFirstChildOfClass('Humanoid')
+                local root=model:FindFirstChild('HumanoidRootPart')
+                local player=Players:GetPlayerFromCharacter(model)
+                if human and human.Health>0 and root and (not player or (player~=me and not ignoredTarget(player))) then
+                    local distance=(root.Position-myRoot.Position).Magnitude
+                    if distance<=bestDistance then
+                        nearestRoot=root
+                        bestDistance=distance
+                    end
                 end
             end
         end
@@ -2137,8 +2160,9 @@ function updateBackFollow()
     local targetPlayer = targetRoot and Players:GetPlayerFromCharacter(targetRoot.Parent)
     local targetHum = targetRoot and targetRoot.Parent and targetRoot.Parent:FindFirstChildOfClass('Humanoid')
     local maxDistance = state.zone
-    if not targetRoot or not targetRoot.Parent or not targetPlayer
-        or ignoredTarget(targetPlayer) or not targetHum or targetHum.Health <= 0
+    local tsbDummy=selectedGame=='The Strongest Battlegrounds' and targetRoot and targetRoot.Parent and not targetPlayer
+    if not targetRoot or not targetRoot.Parent or (not targetPlayer and not tsbDummy)
+        or (targetPlayer and ignoredTarget(targetPlayer)) or not targetHum or targetHum.Health <= 0
         or (targetRoot.Position - root.Position).Magnitude > maxDistance + 8 then
         local nextTarget = targetForCatch()
         if nextTarget ~= backFollowTarget then lastStableForward = nil end
@@ -2146,6 +2170,33 @@ function updateBackFollow()
         backFollowTarget = targetRoot
     end
     if not targetRoot then return end
+    -- TSB-specific M1 spacing: face the target at melee range instead of
+    -- snapping to its back. Do not modify Legends/JJS follow behavior.
+    if selectedGame=='The Strongest Battlegrounds' then
+        local targetPosition=targetRoot.Position
+        local delta=Vector3.new(root.Position.X-targetPosition.X,0,root.Position.Z-targetPosition.Z)
+        local separation=delta.Magnitude
+        if separation<0.05 then
+            local look=targetRoot.CFrame.LookVector
+            delta=Vector3.new(look.X,0,look.Z)
+            separation=delta.Magnitude
+        end
+        if separation<0.05 then delta=Vector3.new(0,0,1);separation=1 end
+        local away=delta/separation
+        -- Keep a stable ~3 stud attack distance; avoid clipping into dummies.
+        local reach=math.clamp(state.approach,2.7,3.4)
+        local desiredPosition=Vector3.new(targetPosition.X,root.Position.Y,targetPosition.Z)+away*reach
+        local forward=Vector3.new(targetPosition.X-desiredPosition.X,0,targetPosition.Z-desiredPosition.Z)
+        if forward.Magnitude<0.05 then return end
+        local targetCF=CFrame.lookAt(desiredPosition,desiredPosition+forward.Unit,Vector3.yAxis)
+        hum.AutoRotate=false
+        -- Move smoothly near target to reduce server correction jitter.
+        local shift=(desiredPosition-root.Position).Magnitude
+        local alpha=shift>9 and 0.18 or (shift>4 and 0.38 or 0.68)
+        root.CFrame=root.CFrame:Lerp(targetCF,alpha)
+        root.AssemblyAngularVelocity=Vector3.zero
+        return
+    end
     -- Follow the opponent's back, but ALWAYS remain upright.
     -- For prone or tumbling targets the back can point upwards; do not copy
     -- their roll/pitch into the local character (that caused flying/tilting).
