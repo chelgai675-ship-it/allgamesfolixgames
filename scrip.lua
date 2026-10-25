@@ -343,9 +343,9 @@ local royalSoundEnabled=true
 local royalSound=Instance.new('Sound')
 royalSound.Name='RobloxMaximkaRoyalVoice'
 royalSound.Volume=3
-royalSound.SoundId=fileAsset('folix_royal_kill.mp3',ROYAL_KILL_SOUND_B64) or ''
+royalSound.SoundId=fileAsset('folix_royal_kill.mp3',ROYAL_KILL_SOUND_B64) or 'rbxasset://sounds/electronicpingshort.wav'
 royalSound.Parent=ui
-if royalSound.SoundId=='' then warn('[FOLIX] Kill audio unavailable: executor does not support local sound assets') end
+if royalSound.SoundId=='rbxasset://sounds/electronicpingshort.wav' then warn('[FOLIX] Voice asset unavailable: fallback Roblox ping will play') end
 ROYAL_KILL_SOUND_B64=nil
 
 local function playRoyalKillSound()
@@ -380,8 +380,8 @@ end
 -- Local-only kneeling effect. Works with standard R6 and R15 rigs,
 -- independently of the victim's orientation at death.
 local Debris=game:GetService('Debris')
-local function showLocalKneel(h)
-    local character=h.Parent
+local function showLocalKneel(h, savedCharacter)
+    local character=savedCharacter or h.Parent
     if not character or not character:IsA('Model') then return end
     local root=character:FindFirstChild('HumanoidRootPart') or character.PrimaryPart
     if not root or not root:IsA('BasePart') then return end
@@ -419,17 +419,17 @@ local function showLocalKneel(h)
             local name=joint.Name
             if rig==Enum.HumanoidRigType.R15 then
                 if name=='RightHip' or name=='LeftHip' then
-                    joint.Transform=CFrame.Angles(math.rad(-75),0,0)
+                    joint.C0=joint.C0*CFrame.Angles(math.rad(-75),0,0)
                 elseif name=='RightKnee' or name=='LeftKnee' then
-                    joint.Transform=CFrame.Angles(math.rad(110),0,0)
+                    joint.C0=joint.C0*CFrame.Angles(math.rad(110),0,0)
                 elseif name=='Waist' then
-                    joint.Transform=CFrame.Angles(math.rad(14),0,0)
+                    joint.C0=joint.C0*CFrame.Angles(math.rad(14),0,0)
                 end
             else
                 if name=='Right Hip' then
-                    joint.Transform=CFrame.Angles(math.rad(-95),0,math.rad(8))
+                    joint.C0=joint.C0*CFrame.Angles(math.rad(-95),0,math.rad(8))
                 elseif name=='Left Hip' then
-                    joint.Transform=CFrame.Angles(math.rad(-95),0,math.rad(-8))
+                    joint.C0=joint.C0*CFrame.Angles(math.rad(-95),0,math.rad(-8))
                 end
             end
         end
@@ -458,17 +458,56 @@ local function showLocalKneel(h)
     end
     Debris:AddItem(ghost,4)
 end
+-- TSB / JJS fallback: only a local approximation, never a server-confirmed kill.
+-- Enabled for NPC dummies and players only when a recent local attack input
+-- occurred very near the victim. May mistakenly count nearby kills.
+local tsbProximityFallback=true
+local recentAttackAt=-100
+local inputService=game:GetService('UserInputService')
+table.insert(royalKillConnections,inputService.InputBegan:Connect(function(input,processed)
+    if processed then return end
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or
+        input.KeyCode==Enum.KeyCode.One or input.KeyCode==Enum.KeyCode.Two or
+        input.KeyCode==Enum.KeyCode.Three or input.KeyCode==Enum.KeyCode.Four then
+        recentAttackAt=os.clock()
+    end
+end))
+local function likelyRecentCloseAttack(victim)
+    if not tsbProximityFallback or os.clock()-recentAttackAt>1.3 then return false end
+    local a=me.Character and me.Character:FindFirstChild('HumanoidRootPart')
+    local b=victim and victim:FindFirstChild('HumanoidRootPart')
+    return a~=nil and b~=nil and (a.Position-b.Position).Magnitude<16
+end
 local function monitorRoyalHumanoid(h)
     if monitoredHumanoids[h] or not h:IsA('Humanoid') then return end
     local model=h.Parent
     if not model or model==me.Character then return end
     monitoredHumanoids[h]=true
     local handled=false
+    -- Cache a living rig: TSB often ragdolls or destroys joints immediately on death.
+    local cachedRig=nil
+    local function cacheRig()
+        if cachedRig or h.Health<=0 or not model.Parent then return end
+        local old=model.Archivable
+        model.Archivable=true
+        local ok,clone=pcall(function() return model:Clone() end)
+        model.Archivable=old
+        if ok then cachedRig=clone end
+    end
+    cacheRig()
+    local lastCache=0
+    table.insert(royalKillConnections,h.HealthChanged:Connect(function(health)
+        if health>0 and os.clock()-lastCache>0.8 then
+            lastCache=os.clock()
+            if cachedRig then cachedRig:Destroy(); cachedRig=nil end
+            cacheRig()
+        end
+    end))
     local function tryConfirmedKill()
-        if handled or not isMyKill(h) then return end
+        if handled or not (isMyKill(h) or likelyRecentCloseAttack(model)) then return end
         handled=true
         playRoyalKillSound()
-        local ok,err=pcall(showLocalKneel,h)
+        local ok,err=pcall(showLocalKneel,h,cachedRig)
         if not ok then warn('[FOLIX] Kneel visual failed:',err) end
     end
     local connection=h.Died:Connect(function()
