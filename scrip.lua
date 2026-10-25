@@ -2238,62 +2238,93 @@ pcall(function()
         end
     end
 end)
-premiumBadge=new('Frame',{
-    Name='PremiumForAll',BackgroundTransparency=.25,
-    BackgroundColor3=Color3.fromRGB(45,37,42),BorderSizePixel=0,
-    Position=UDim2.fromOffset(14,490),Size=UDim2.fromOffset(150,43),
-    ZIndex=80
-},side)
-round(premiumBadge,8)
-premiumCrown=new('ImageLabel',{
-    Name='Crown',BackgroundTransparency=1,Image=crownAsset or '',
-    Position=UDim2.fromOffset(3,3),Size=UDim2.fromOffset(38,35),
-    ScaleType=Enum.ScaleType.Fit,ZIndex=81
-},premiumBadge)
-premiumTitle=new('TextLabel',{
-    Name='PremiumTitle',BackgroundTransparency=1,
-    Text='♛ PREMIUM',Font=Enum.Font.GothamBold,TextSize=14,
-    TextColor3=Color3.fromRGB(255,236,170),TextXAlignment=Enum.TextXAlignment.Center,
-    Position=UDim2.fromOffset(42,5),Size=UDim2.fromOffset(104,30),ZIndex=81
-},premiumBadge)
--- Present on every account, purely local; it does not grant Robux/gamepasses.
-function addPremiumTag(p)
-    if not ui.Parent then return end
+-- Local visual developer label: each script user sees it above the developer's character
+-- only when that player is present in the same server. This does not replicate to other clients.
+premiumBadge=nil
+premiumCrown=nil
+premiumTitle=nil
+
+local PREMIUM_USERNAME='6767KYZA6767'
+local premiumConnections={}
+local premiumTarget=nil
+
+local function addPremiumTag(p)
+    if not p or p.Name~=PREMIUM_USERNAME or not ui.Parent then return end
     local character=p.Character
     local head=character and character:FindFirstChild('Head')
-    if not head or head:FindFirstChild('FOLIXPremiumTag') then return end
+    if not head then return end
+    local existing=head:FindFirstChild('FOLIXPremiumTag')
+    if existing then existing:Destroy() end
     local tag=Instance.new('BillboardGui')
-    tag.Name='FOLIXPremiumTag';tag.Size=UDim2.fromOffset(105,24)
-    tag.StudsOffset=Vector3.new(0,2.8,0);tag.AlwaysOnTop=true
-    tag.Adornee=head;tag.Parent=head
+    tag.Name='FOLIXPremiumTag'
+    tag.Size=UDim2.fromOffset(200,54)
+    tag.StudsOffset=Vector3.new(0,3.2,0)
+    tag.AlwaysOnTop=true
+    tag.Adornee=head
+    tag.Parent=head
     local title=Instance.new('TextLabel')
-    title.BackgroundTransparency=1;title.Size=UDim2.fromScale(1,1)
-    title.Text='♛ PREMIUM';title.Font=Enum.Font.GothamBold
-    title.TextSize=12;title.TextStrokeTransparency=.3
-    title.TextColor3=Color3.fromRGB(255,221,120);title.Parent=tag
+    title.BackgroundTransparency=1
+    title.Size=UDim2.fromScale(1,1)
+    title.Text='SCRIPT DEVELOPER\n♛ PREMIUM  '..PREMIUM_USERNAME
+    title.Font=Enum.Font.GothamBold
+    title.TextSize=12
+    title.TextWrapped=true
+    title.TextStrokeTransparency=.3
+    title.TextColor3=Color3.fromRGB(255,221,120)
+    title.Parent=tag
 end
-premiumConnections={}
-for _,p in ipairs(Players:GetPlayers()) do
-    task.defer(addPremiumTag,p)
-    table.insert(premiumConnections,p.CharacterAdded:Connect(function()
-        task.delay(.6,function()addPremiumTag(p)end)
-    end))
+
+local function findPremiumTarget()
+    local p=Players:FindFirstChild(PREMIUM_USERNAME)
+    if p then
+        premiumTarget=p
+        task.delay(.6,function()
+            if premiumTarget==p then addPremiumTag(p) end
+        end)
+    else
+        premiumTarget=nil
+    end
 end
+
 table.insert(premiumConnections,Players.PlayerAdded:Connect(function(p)
-    table.insert(premiumConnections,p.CharacterAdded:Connect(function()
-        task.delay(.6,function()addPremiumTag(p)end)
-    end))
+    if p.Name==PREMIUM_USERNAME then
+        premiumTarget=p
+        table.insert(premiumConnections,p.CharacterAdded:Connect(function()
+            task.delay(.6,function()
+                if premiumTarget==p then addPremiumTag(p) end
+            end)
+        end))
+        task.delay(.6,function() addPremiumTag(p) end)
+    end
 end))
-ui.Destroying:Connect(function()
-    for _,c in ipairs(premiumConnections) do pcall(function()c:Disconnect()end) end
-    for _,p in ipairs(Players:GetPlayers()) do
-        local head=p.Character and p.Character:FindFirstChild('Head')
+table.insert(premiumConnections,Players.PlayerRemoving:Connect(function(p)
+    if p==premiumTarget then
+        local character=p.Character
+        local head=character and character:FindFirstChild('Head')
         local tag=head and head:FindFirstChild('FOLIXPremiumTag')
         if tag then tag:Destroy() end
+        premiumTarget=nil
     end
+end))
+for _,p in ipairs(Players:GetPlayers()) do
+    if p.Name==PREMIUM_USERNAME then
+        premiumTarget=p
+        table.insert(premiumConnections,p.CharacterAdded:Connect(function()
+            task.delay(.6,function()
+                if premiumTarget==p then addPremiumTag(p) end
+            end)
+        end))
+        task.defer(addPremiumTag,p)
+    end
+end
+ui.Destroying:Connect(function()
+    for _,c in ipairs(premiumConnections) do pcall(function() c:Disconnect() end) end
+    local p=premiumTarget
+    local head=p and p.Character and p.Character:FindFirstChild('Head')
+    local tag=head and head:FindFirstChild('FOLIXPremiumTag')
+    if tag then tag:Destroy() end
 end)
--- Updated Examination NPC tracker uses event-driven discovery, and moves only NPCs.
--- Server-side hit registration is controlled by the game.
+-- Hit registration is server-authoritative; this script's hitbox is only a local visual.
 applyTheme('Cinema')
 selectPage('Home')
 
