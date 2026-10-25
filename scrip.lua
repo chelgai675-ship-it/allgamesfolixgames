@@ -41,7 +41,7 @@ local waypointList={}
 local savedPosition=nil
 local tpSelected=nil
 local currentPage='Home'
-local selectedGame='Legends Battleground' -- Legends / Jujutsu Shenanigans / Examination
+local selectedGame='Legends Battleground' -- Legends / TSB / Jujutsu Shenanigans / Examination
 local selectedTheme='Cinema'
 local examSafeCFrame=nil
 local examAntiVoid=false
@@ -342,7 +342,7 @@ local ROYAL_KILL_SOUND_B64 = [[SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU5LjI3LjEwMAAAA
 local royalSoundEnabled=true
 local royalSound=Instance.new('Sound')
 royalSound.Name='RobloxMaximkaRoyalVoice'
-royalSound.Volume=3
+royalSound.Volume=1.5
 royalSound.SoundId=fileAsset('folix_royal_kill.mp3',ROYAL_KILL_SOUND_B64) or 'rbxasset://sounds/electronicpingshort.wav'
 royalSound.Parent=ui
 if royalSound.SoundId=='rbxasset://sounds/electronicpingshort.wav' then warn('[FOLIX] Voice asset unavailable: fallback Roblox ping will play') end
@@ -458,69 +458,94 @@ local function showLocalKneel(h, savedCharacter)
     end
     Debris:AddItem(ghost,4)
 end
--- TSB / JJS fallback: only a local approximation, never a server-confirmed kill.
--- Enabled for NPC dummies and players only when a recent local attack input
--- occurred very near the victim. May mistakenly count nearby kills.
-local tsbProximityFallback=true
+-- TSB-focused local effects (players + training dummies).
+-- Attribution without a server kill tag is heuristic, not authoritative.
 local recentAttackAt=-100
-local inputService=game:GetService('UserInputService')
-table.insert(royalKillConnections,inputService.InputBegan:Connect(function(input,processed)
+local lastHitByModel=setmetatable({}, {__mode='k'})
+local UIS=game:GetService('UserInputService')
+local function attackInput(input,processed)
     if processed then return end
-    if input.UserInputType==Enum.UserInputType.MouseButton1 or
-        input.KeyCode==Enum.KeyCode.One or input.KeyCode==Enum.KeyCode.Two or
-        input.KeyCode==Enum.KeyCode.Three or input.KeyCode==Enum.KeyCode.Four then
-        recentAttackAt=os.clock()
+    local k=input.KeyCode
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or k==Enum.KeyCode.One or
+       k==Enum.KeyCode.Two or k==Enum.KeyCode.Three or k==Enum.KeyCode.Four or
+       k==Enum.KeyCode.Q or k==Enum.KeyCode.E or k==Enum.KeyCode.R or
+       k==Enum.KeyCode.F then
+       recentAttackAt=os.clock()
     end
-end))
-local function likelyRecentCloseAttack(victim)
-    if not tsbProximityFallback or os.clock()-recentAttackAt>1.3 then return false end
-    local a=me.Character and me.Character:FindFirstChild('HumanoidRootPart')
-    local b=victim and victim:FindFirstChild('HumanoidRootPart')
-    return a~=nil and b~=nil and (a.Position-b.Position).Magnitude<16
+end
+table.insert(royalKillConnections,UIS.InputBegan:Connect(attackInput))
+local function closeToMe(model,dist)
+    local myRoot=me.Character and me.Character:FindFirstChild('HumanoidRootPart')
+    local victimRoot=model and (model:FindFirstChild('HumanoidRootPart') or model:FindFirstChild('Torso') or model:FindFirstChild('UpperTorso'))
+    return myRoot and victimRoot and (myRoot.Position-victimRoot.Position).Magnitude<=dist
+end
+local function recentTsbHit(model)
+    local t=lastHitByModel[model]
+    return t and os.clock()-t<=2.0 and closeToMe(model,24)
 end
 local function monitorRoyalHumanoid(h)
     if monitoredHumanoids[h] or not h:IsA('Humanoid') then return end
     local model=h.Parent
-    if not model or model==me.Character then return end
+    if not model or not model:IsA('Model') or model==me.Character then return end
     monitoredHumanoids[h]=true
     local handled=false
-    -- Cache a living rig: TSB often ragdolls or destroys joints immediately on death.
     local cachedRig=nil
-    local function cacheRig()
-        if cachedRig or h.Health<=0 or not model.Parent then return end
+    local oldHealth=h.Health
+    local connections={}
+    local function watch(c)
+        table.insert(connections,c)
+        table.insert(royalKillConnections,c)
+    end
+    local function snapshot()
+        if h.Health<=0 or not model.Parent then return end
         local old=model.Archivable
         model.Archivable=true
-        local ok,clone=pcall(function() return model:Clone() end)
+        local ok,copy=pcall(function() return model:Clone() end)
         model.Archivable=old
-        if ok then cachedRig=clone end
-    end
-    cacheRig()
-    local lastCache=0
-    table.insert(royalKillConnections,h.HealthChanged:Connect(function(health)
-        if health>0 and os.clock()-lastCache>0.8 then
-            lastCache=os.clock()
-            if cachedRig then cachedRig:Destroy(); cachedRig=nil end
-            cacheRig()
+        if ok and copy then
+            if cachedRig then cachedRig:Destroy() end
+            cachedRig=copy
         end
-    end))
-    local function tryConfirmedKill()
-        if handled or not (isMyKill(h) or likelyRecentCloseAttack(model)) then return end
+    end
+    snapshot()
+    local function finish()
+        if handled then return end
+        if not (isMyKill(h) or recentTsbHit(model)) then return end
         handled=true
         playRoyalKillSound()
-        local ok,err=pcall(showLocalKneel,h,cachedRig)
-        if not ok then warn('[FOLIX] Kneel visual failed:',err) end
+        local ok,err=pcall(showLocalKneel,h,cachedRig or model)
+        if not ok then warn('[FOLIX/TSB] Visual:',err) end
+        if cachedRig then cachedRig:Destroy();cachedRig=nil end
     end
-    local connection=h.Died:Connect(function()
-        tryConfirmedKill()
-        -- Some games replicate attribution one or two frames after death.
-        task.delay(0.2,tryConfirmedKill)
-        task.delay(0.65,tryConfirmedKill)
-    end)
-    table.insert(royalKillConnections,connection)
-    table.insert(royalKillConnections,h.HealthChanged:Connect(function(health)
-        if health<=0 then tryConfirmedKill() end
+    watch(h.HealthChanged:Connect(function(health)
+        -- Record credible recent local damage; watching health alone is not proof of a kill.
+        if health<oldHealth and health>0 and os.clock()-recentAttackAt<0.9 and closeToMe(model,18) then
+            lastHitByModel[model]=os.clock()
+            if not cachedRig then snapshot() end
+        end
+        oldHealth=health
+        if health<=0 then
+            finish()
+            task.delay(0.25,finish)
+            task.delay(0.8,finish)
+        end
+    end))
+    watch(h.Died:Connect(function()
+        finish()
+        task.delay(0.2,finish)
+        task.delay(0.7,finish)
+    end))
+    watch(model.AncestryChanged:Connect(function(_,parent)
+        if not parent then
+            -- TSB may despawn a dummy before Died is replicated.
+            finish()
+            task.delay(1,function()
+                if cachedRig then cachedRig:Destroy();cachedRig=nil end
+            end)
+        end
     end))
 end
+-- Event-based discovery avoids repeatedly scanning the whole map during combat.
 for _,obj in ipairs(Workspace:GetDescendants()) do
     if obj:IsA('Humanoid') then monitorRoyalHumanoid(obj) end
 end
@@ -528,7 +553,7 @@ table.insert(royalKillConnections,Workspace.DescendantAdded:Connect(function(obj
     if obj:IsA('Humanoid') then monitorRoyalHumanoid(obj) end
 end))
 ui.Destroying:Connect(function()
-    for _,connection in ipairs(royalKillConnections) do connection:Disconnect() end
+    for _,connection in ipairs(royalKillConnections) do pcall(function() connection:Disconnect() end) end
     royalSound:Stop()
 end)
 
@@ -1151,6 +1176,9 @@ function selectPage(name)
         button('LEGENDS BATTLEGROUND',function()
             selectedGame='Legends Battleground';selectPage('Scripts')
         end)
+        button('THE STRONGEST BATTLEGROUNDS (TSB)',function()
+            selectedGame='The Strongest Battlegrounds';state.catch=false;selectPage('TSB')
+        end)
         button('JUJUTSU SHENANIGANS (JJS)',function()
             selectedGame='Jujutsu Shenanigans';state.catch=false;state.realParts=false;selectPage('JJS')
         end)
@@ -1165,6 +1193,22 @@ function selectPage(name)
             applyTheme('UwU');selectPage('Home')
         end)
         note('Настройки тем и звука также есть во вкладке Settings.')
+    elseif name=='TSB' then
+        category('THE STRONGEST BATTLEGROUNDS — TSB')
+        note('Профиль TSB: функции Legends доступны отдельно. Эффект коленей и звук включаются при распознанном убийстве, но подтверждение зависит от игры.')
+        category('Combat / TSB')
+        button('Combat / M1 Catch',function()selectPage('Combat')end)
+        button('Targets / HIT / IGNORE',function()selectPage('Targets')end)
+        category('Movement / Движение')
+        button('Speed / Fly / Jump / Noclip',function()selectPage('Main')end)
+        category('Visuals / Визуальные эффекты')
+        button('ESP / Fullbright / Hitbox',function()selectPage('Exploits')end)
+        category('Other / Другое')
+        button('Teleport',function()selectPage('Teleport')end)
+        button('Custom Animations',function()selectPage('Custom Animations')end)
+        button('Kill Sound / Settings',function()selectPage('Settings')end)
+        button('Общий список функций Legends',function()selectPage('Scripts')end)
+        note('R6/R15 и регистрация атак зависят от сервера TSB; эффекты убийства локальные.')
     elseif name=='JJS' then
         category('JUJUTSU SHENANIGANS — ALL FEATURES')
         note('Профиль JJS: функции Legends перенесены. Урон/хитбоксы и телепортации проверяет сервер игры.')
@@ -1264,6 +1308,15 @@ function selectPage(name)
         if selectedGame=='Jujutsu Shenanigans' then
             category('JJS / JUJUTSU SHENANIGANS')
             button('Открыть функции JJS',function()selectPage('JJS')end)
+        elseif selectedGame=='The Strongest Battlegrounds' then
+            category('TSB / THE STRONGEST BATTLEGROUNDS')
+            button('Открыть TSB / Все функции',function()selectPage('TSB')end)
+            button('Combat',function()selectPage('Combat')end)
+            button('Movement',function()selectPage('Main')end)
+            button('ESP / Visuals',function()selectPage('Exploits')end)
+            button('Targets',function()selectPage('Targets')end)
+            button('Teleport',function()selectPage('Teleport')end)
+            button('Settings / Kill Sounds',function()selectPage('Settings')end)
         elseif selectedGame=='Examination' then
             category('EXAMINATION')
             button('NPC Hitbox / Размер голов',function()selectPage('Examination')end)
@@ -2309,7 +2362,7 @@ gamePicker=new('TextButton',{
 round(gamePicker,7)
 gamePopup=new('Frame',{
     Name='GamePickerPopup',Visible=false,BackgroundColor3=Color3.fromRGB(29,29,32),
-    BorderSizePixel=0,Position=UDim2.fromOffset(204,42),Size=UDim2.fromOffset(204,136),ZIndex=80
+    BorderSizePixel=0,Position=UDim2.fromOffset(204,42),Size=UDim2.fromOffset(204,180),ZIndex=80
 },window)
 round(gamePopup,8)
 function gameOption(label,y,value,page)
@@ -2332,15 +2385,17 @@ function gameOption(label,y,value,page)
             end
         end
         gamePicker.Text=(value=='Examination' and 'Exam  ▾' or
-            (value=='Jujutsu Shenanigans' and 'JJS  ▾' or 'Legends  ▾'))
+            (value=='Jujutsu Shenanigans' and 'JJS  ▾' or
+            (value=='The Strongest Battlegrounds' and 'TSB  ▾' or 'Legends  ▾')))
         gamePopup.Visible=false
         selectPage(page)
         applyTheme(selectedTheme)
     end)
 end
 gameOption('Legends Battleground',5,'Legends Battleground','Scripts')
-gameOption('Jujutsu Shenanigans',49,'Jujutsu Shenanigans','JJS')
-gameOption('Examination  /  NPC',93,'Examination','Examination')
+gameOption('The Strongest Battlegrounds (TSB)',49,'The Strongest Battlegrounds','TSB')
+gameOption('Jujutsu Shenanigans',93,'Jujutsu Shenanigans','JJS')
+gameOption('Examination  /  NPC',137,'Examination','Examination')
 gamePicker.Activated:Connect(function()
     gamePopup.Visible=not gamePopup.Visible
     applyTheme(selectedTheme)
