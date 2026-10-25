@@ -367,12 +367,19 @@ local function isMyKill(humanoid)
     end
     return false
 end
--- Client-only kneeling after an attributed elimination; never changes the real character.
+-- Local-only kneeling effect. Works with standard R6 and R15 rigs,
+-- independently of the victim's orientation at death.
 local Debris=game:GetService('Debris')
 local function showLocalKneel(h)
     local character=h.Parent
     if not character or not character:IsA('Model') then return end
-    local pivot=character:GetPivot()
+    local root=character:FindFirstChild('HumanoidRootPart') or character.PrimaryPart
+    if not root or not root:IsA('BasePart') then return end
+    local rootPosition=root.Position
+    local direction=Vector3.new(root.CFrame.LookVector.X,0,root.CFrame.LookVector.Z)
+    if direction.Magnitude<0.01 then direction=Vector3.new(0,0,-1) end
+    direction=direction.Unit
+
     local oldArchivable=character.Archivable
     character.Archivable=true
     local ok,ghost=pcall(function() return character:Clone() end)
@@ -380,30 +387,64 @@ local function showLocalKneel(h)
     if not ok or not ghost then return end
     ghost.Name='FOLIX_ClientOnlyKneel'
     for _,item in ipairs(ghost:GetDescendants()) do
-        if item:IsA('BaseScript') or item:IsA('Sound') or item:IsA('Tool') then
+        if item:IsA('BaseScript') or item:IsA('Sound') or item:IsA('Tool') or item:IsA('Animator') then
             item:Destroy()
         elseif item:IsA('BasePart') then
             item.Anchored=true
             item.CanCollide=false
             item.CanTouch=false
             item.CanQuery=false
+            item.AssemblyLinearVelocity=Vector3.zero
+            item.AssemblyAngularVelocity=Vector3.zero
         elseif item:IsA('Humanoid') then
             item.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
             item.BreakJointsOnDeath=false
+        elseif item:IsA('Motor6D') then
+            item.Transform=CFrame.identity
         end
     end
-    ghost.Parent=Workspace -- only this client sees this clone
-    ghost:PivotTo(pivot * CFrame.new(0,-1.3,0))
+    local rig=h.RigType
     for _,joint in ipairs(ghost:GetDescendants()) do
         if joint:IsA('Motor6D') then
-            if joint.Name=='RightHip' or joint.Name=='LeftHip' then
-                joint.C0=joint.C0*CFrame.Angles(math.rad(-85),0,0)
-            elseif joint.Name=='RightKnee' or joint.Name=='LeftKnee' then
-                joint.C0=joint.C0*CFrame.Angles(math.rad(110),0,0)
-            elseif joint.Name=='Waist' then
-                joint.C0=joint.C0*CFrame.Angles(math.rad(12),0,0)
+            local name=joint.Name
+            if rig==Enum.HumanoidRigType.R15 then
+                if name=='RightHip' or name=='LeftHip' then
+                    joint.Transform=CFrame.Angles(math.rad(-75),0,0)
+                elseif name=='RightKnee' or name=='LeftKnee' then
+                    joint.Transform=CFrame.Angles(math.rad(110),0,0)
+                elseif name=='Waist' then
+                    joint.Transform=CFrame.Angles(math.rad(14),0,0)
+                end
+            else
+                if name=='Right Hip' then
+                    joint.Transform=CFrame.Angles(math.rad(-95),0,math.rad(8))
+                elseif name=='Left Hip' then
+                    joint.Transform=CFrame.Angles(math.rad(-95),0,math.rad(-8))
+                end
             end
         end
+    end
+    ghost.Parent=Workspace
+    -- Use an upright Y-only heading, never the fallen body's tilt.
+    local upright=CFrame.lookAt(rootPosition,rootPosition+direction)
+    local ghostRoot=ghost:FindFirstChild('HumanoidRootPart')
+    if ghostRoot then
+        local oldPivot=ghost:GetPivot()
+        ghost:PivotTo(upright * ghostRoot.CFrame:ToObjectSpace(oldPivot))
+    else
+        ghost:PivotTo(upright)
+    end
+    -- Sit the knees close to the floor when a floor is present.
+    local ray=Workspace:Raycast(rootPosition+Vector3.new(0,4,0),Vector3.new(0,-20,0))
+    local baseline=ray and ray.Position.Y or (rootPosition.Y-3)
+    local minY=math.huge
+    for _,part in ipairs(ghost:GetDescendants()) do
+        if part:IsA('BasePart') and part.Name~='HumanoidRootPart' then
+            minY=math.min(minY,part.Position.Y-part.Size.Y/2)
+        end
+    end
+    if minY<math.huge then
+        ghost:PivotTo(ghost:GetPivot()+Vector3.new(0,baseline-minY+0.07,0))
     end
     Debris:AddItem(ghost,4)
 end
