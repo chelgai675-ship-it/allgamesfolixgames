@@ -1209,7 +1209,7 @@ function selectPage(name)
         button('Custom Animations',function()selectPage('Custom Animations')end)
         button('Kill Sound / Settings',function()selectPage('Settings')end)
         button('Общий список функций Legends',function()selectPage('Scripts')end)
-        note('TSB M1: держи ЛКМ/кнопку удара рядом с целью. Позиция на 2.7–3.4 studs; попадания подтверждает сервер.')
+        note('TSB M1: стоящий враг — за спиной; лежащий — зависание близко НАД ним, взгляд вниз. Попадания подтверждает сервер.')
     elseif name=='JJS' then
         category('JUJUTSU SHENANIGANS — ALL FEATURES')
         note('Профиль JJS: функции Legends перенесены. Урон/хитбоксы и телепортации проверяет сервер игры.')
@@ -2170,30 +2170,51 @@ function updateBackFollow()
         backFollowTarget = targetRoot
     end
     if not targetRoot then return end
-    -- TSB-specific M1 spacing: face the target at melee range instead of
-    -- snapping to its back. Do not modify Legends/JJS follow behavior.
+    -- TSB-only M1 follow: prone/ragdoll targets are approached from above.
+    -- Legends and the other game modes continue through their original code.
     if selectedGame=='The Strongest Battlegrounds' then
-        local targetPosition=targetRoot.Position
-        local delta=Vector3.new(root.Position.X-targetPosition.X,0,root.Position.Z-targetPosition.Z)
-        local separation=delta.Magnitude
-        if separation<0.05 then
-            local look=targetRoot.CFrame.LookVector
-            delta=Vector3.new(look.X,0,look.Z)
-            separation=delta.Magnitude
+        local targetChar=targetRoot.Parent
+        local torso=targetChar and (targetChar:FindFirstChild('UpperTorso') or targetChar:FindFirstChild('Torso'))
+        local body=torso or targetRoot
+        local humState=targetHum:GetState()
+        local prone=targetHum.PlatformStand
+            or humState==Enum.HumanoidStateType.Ragdoll
+            or humState==Enum.HumanoidStateType.FallingDown
+            or humState==Enum.HumanoidStateType.Physics
+            or (torso and math.abs(torso.CFrame.UpVector.Y)<0.50)
+        local targetCF
+        if prone then
+            -- Hover a little above the torso and look straight down at it.
+            -- No sky-high offset: fixed clearance, independent of ragdoll rotation.
+            local clearance=math.clamp(state.followHeight+2.1,2.2,3.4)
+            local desiredPosition=body.Position+Vector3.new(0,clearance,0)
+            local towards=(body.Position-desiredPosition).Unit
+            -- Provide a horizontal up hint so lookAt remains stable when looking down.
+            local camera=Workspace.CurrentCamera
+            local cameraForward=camera and camera.CFrame.LookVector or Vector3.new(0,0,-1)
+            local flatForward=Vector3.new(cameraForward.X,0,cameraForward.Z)
+            if flatForward.Magnitude<0.05 then flatForward=lastStableForward or Vector3.new(0,0,-1) end
+            flatForward=flatForward.Unit
+            lastStableForward=flatForward
+            targetCF=CFrame.lookAt(desiredPosition,desiredPosition+towards,flatForward)
+        else
+            local look=body.CFrame.LookVector
+            local flatLook=Vector3.new(look.X,0,look.Z)
+            if flatLook.Magnitude<0.05 then flatLook=lastStableForward or Vector3.new(0,0,-1) end
+            flatLook=flatLook.Unit
+            lastStableForward=flatLook
+            local reach=math.clamp(state.approach,2.7,3.4)
+            local behind=body.Position-flatLook*reach
+            local desiredPosition=Vector3.new(behind.X,root.Position.Y,behind.Z)
+            local facing=Vector3.new(body.Position.X-desiredPosition.X,0,body.Position.Z-desiredPosition.Z)
+            if facing.Magnitude<0.05 then facing=flatLook end
+            targetCF=CFrame.lookAt(desiredPosition,desiredPosition+facing.Unit,Vector3.yAxis)
         end
-        if separation<0.05 then delta=Vector3.new(0,0,1);separation=1 end
-        local away=delta/separation
-        -- Keep a stable ~3 stud attack distance; avoid clipping into dummies.
-        local reach=math.clamp(state.approach,2.7,3.4)
-        local desiredPosition=Vector3.new(targetPosition.X,root.Position.Y,targetPosition.Z)+away*reach
-        local forward=Vector3.new(targetPosition.X-desiredPosition.X,0,targetPosition.Z-desiredPosition.Z)
-        if forward.Magnitude<0.05 then return end
-        local targetCF=CFrame.lookAt(desiredPosition,desiredPosition+forward.Unit,Vector3.yAxis)
         hum.AutoRotate=false
-        -- Move smoothly near target to reduce server correction jitter.
-        local shift=(desiredPosition-root.Position).Magnitude
-        local alpha=shift>9 and 0.18 or (shift>4 and 0.38 or 0.68)
+        local shift=(targetCF.Position-root.Position).Magnitude
+        local alpha=shift>9 and 0.28 or (shift>4 and 0.48 or 0.75)
         root.CFrame=root.CFrame:Lerp(targetCF,alpha)
+        if prone then root.AssemblyLinearVelocity=Vector3.zero end
         root.AssemblyAngularVelocity=Vector3.zero
         return
     end
