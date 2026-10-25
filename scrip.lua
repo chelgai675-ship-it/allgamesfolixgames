@@ -2517,12 +2517,15 @@ premiumBadge=nil
 premiumCrown=nil
 premiumTitle=nil
 
-local PREMIUM_USERNAME='6767KYZA6767'
+local PREMIUM_USERNAMES={
+    ['6767KYZA6767']=true,
+    ['vano639462']=true,
+}
 local premiumConnections={}
-local premiumTarget=nil
+local watchedPremiumPlayers={}
 
 local function addPremiumTag(p)
-    if not p or p.Name~=PREMIUM_USERNAME or not ui.Parent then return end
+    if not p or not PREMIUM_USERNAMES[p.Name] or not ui.Parent then return end
     local character=p.Character
     local head=character and character:FindFirstChild('Head')
     if not head then return end
@@ -2538,7 +2541,7 @@ local function addPremiumTag(p)
     local title=Instance.new('TextLabel')
     title.BackgroundTransparency=1
     title.Size=UDim2.fromScale(1,1)
-    title.Text='SCRIPT DEVELOPER\n♛ PREMIUM  '..PREMIUM_USERNAME
+    title.Text='SCRIPT DEVELOPER\n♛ PREMIUM  '..p.Name
     title.Font=Enum.Font.GothamBold
     title.TextSize=12
     title.TextWrapped=true
@@ -2547,55 +2550,33 @@ local function addPremiumTag(p)
     title.Parent=tag
 end
 
-local function findPremiumTarget()
-    local p=Players:FindFirstChild(PREMIUM_USERNAME)
-    if p then
-        premiumTarget=p
+local function watchPremiumPlayer(p)
+    if not PREMIUM_USERNAMES[p.Name] or watchedPremiumPlayers[p] then return end
+    watchedPremiumPlayers[p]=p.CharacterAdded:Connect(function()
         task.delay(.6,function()
-            if premiumTarget==p then addPremiumTag(p) end
+            if watchedPremiumPlayers[p] then addPremiumTag(p) end
         end)
-    else
-        premiumTarget=nil
-    end
+    end)
+    task.defer(addPremiumTag,p)
 end
 
-table.insert(premiumConnections,Players.PlayerAdded:Connect(function(p)
-    if p.Name==PREMIUM_USERNAME then
-        premiumTarget=p
-        table.insert(premiumConnections,p.CharacterAdded:Connect(function()
-            task.delay(.6,function()
-                if premiumTarget==p then addPremiumTag(p) end
-            end)
-        end))
-        task.delay(.6,function() addPremiumTag(p) end)
-    end
-end))
+table.insert(premiumConnections,Players.PlayerAdded:Connect(watchPremiumPlayer))
 table.insert(premiumConnections,Players.PlayerRemoving:Connect(function(p)
-    if p==premiumTarget then
-        local character=p.Character
-        local head=character and character:FindFirstChild('Head')
-        local tag=head and head:FindFirstChild('FOLIXPremiumTag')
-        if tag then tag:Destroy() end
-        premiumTarget=nil
-    end
-end))
-for _,p in ipairs(Players:GetPlayers()) do
-    if p.Name==PREMIUM_USERNAME then
-        premiumTarget=p
-        table.insert(premiumConnections,p.CharacterAdded:Connect(function()
-            task.delay(.6,function()
-                if premiumTarget==p then addPremiumTag(p) end
-            end)
-        end))
-        task.defer(addPremiumTag,p)
-    end
-end
-ui.Destroying:Connect(function()
-    for _,c in ipairs(premiumConnections) do pcall(function() c:Disconnect() end) end
-    local p=premiumTarget
-    local head=p and p.Character and p.Character:FindFirstChild('Head')
+    local conn=watchedPremiumPlayers[p]
+    if conn then conn:Disconnect(); watchedPremiumPlayers[p]=nil end
+    local head=p.Character and p.Character:FindFirstChild('Head')
     local tag=head and head:FindFirstChild('FOLIXPremiumTag')
     if tag then tag:Destroy() end
+end))
+for _,p in ipairs(Players:GetPlayers()) do watchPremiumPlayer(p) end
+ui.Destroying:Connect(function()
+    for _,c in ipairs(premiumConnections) do pcall(function() c:Disconnect() end) end
+    for p,c in pairs(watchedPremiumPlayers) do
+        pcall(function() c:Disconnect() end)
+        local head=p.Character and p.Character:FindFirstChild('Head')
+        local tag=head and head:FindFirstChild('FOLIXPremiumTag')
+        if tag then tag:Destroy() end
+    end
 end)
 -- Hit registration is server-authoritative; this script's hitbox is only a local visual.
 applyTheme('Cinema')
