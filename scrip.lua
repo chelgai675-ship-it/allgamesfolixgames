@@ -1663,7 +1663,9 @@ function targetForCatch()
     -- TSB also has training dummies that do not belong to Players.
     -- A spatial query avoids searching the entire Workspace every frame.
     if selectedGame=='The Strongest Battlegrounds' then
-        local candidates=Workspace:GetPartBoundsInRadius(myRoot.Position,maxDistance)
+        -- Narrow the spatial query when a closer player is already known.
+        -- This reduces mobile dummy-search work without adding a timer.
+        local candidates=Workspace:GetPartBoundsInRadius(myRoot.Position,bestDistance)
         local checked={}
         for _,part in ipairs(candidates) do
             local model=part:FindFirstAncestorOfClass('Model')
@@ -2135,12 +2137,13 @@ lastFollowTime=nil
 backFollowStepName = 'LBF_BackFollow_V12'
 function updateBackFollow()
     if not active or selectedGame=='Examination' then return end
+    -- Check input first on mobile; avoid unnecessary character lookups on idle frames.
+    local attackHeld = (UIS.TouchEnabled and mobileFollowHeld)
+        or ((not UIS.TouchEnabled) and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1))
     local char = me.Character
     local hum = char and char:FindFirstChildOfClass('Humanoid')
     local root = char and char:FindFirstChild('HumanoidRootPart')
     -- On mobile only the bound ATTACK button can hold catch; camera / joystick taps cannot.
-    local attackHeld = (UIS.TouchEnabled and mobileFollowHeld)
-        or ((not UIS.TouchEnabled) and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1))
     local pressed = attackHeld and state.catch and not state.fly and not window.Visible
         and not UIS:GetFocusedTextBox()
         and hum and hum.Health > 0 and root
@@ -2211,9 +2214,8 @@ function updateBackFollow()
             targetCF=CFrame.lookAt(desiredPosition,desiredPosition+facing.Unit,Vector3.yAxis)
         end
         hum.AutoRotate=false
-        local shift=(targetCF.Position-root.Position).Magnitude
-        local alpha=shift>9 and 0.28 or (shift>4 and 0.48 or 0.75)
-        root.CFrame=root.CFrame:Lerp(targetCF,alpha)
+        -- TSB: track instantly every frame, without artificial interpolation.
+        root.CFrame=targetCF
         if prone then root.AssemblyLinearVelocity=Vector3.zero end
         root.AssemblyAngularVelocity=Vector3.zero
         return
