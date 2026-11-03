@@ -22,7 +22,7 @@ if getgenv()._EspCache then
 end
 getgenv()._EspCache = {}
 local espCache = getgenv()._EspCache
-local lootHighlights = {} -- Кэш для хайлайтов сундуков
+local lootHighlights = {}
 
 -- ==================== 1. ТРẠNG THÁI & CÀI ĐẶT ====================
 local aimbotEnabled = false
@@ -31,7 +31,7 @@ local espBoxEnabled = true
 local espLineEnabled = true
 local wallCheckEnabled = true
 local teamCheckEnabled = false
-local lootEspEnabled = true -- Включаем Loot ESP по умолчанию
+local lootEspEnabled = true
 
 local currentFovRadius = 150
 local maxAimDistance = 500
@@ -91,7 +91,7 @@ FixTitle.Parent = TitleBar
 local TitleText = Instance.new("TextLabel")
 TitleText.Size = UDim2.new(1, -50, 1, 0)
 TitleText.Position = UDim2.new(0, 12, 0, 0)
-TitleText.Text = "Universal Aimbot & Loot ESP"
+TitleText.Text = "Aimbot & Smart Loot ESP (No NPC)"
 TitleText.TextColor3 = Color3.fromRGB(240, 240, 240)
 TitleText.TextSize = 14
 TitleText.Font = Enum.Font.GothamBold
@@ -118,7 +118,7 @@ Container.Size = UDim2.new(1, -20, 1, -50)
 Container.Position = UDim2.new(0, 10, 0, 42)
 Container.BackgroundTransparency = 1
 Container.BorderSizePixel = 0
-Container.CanvasSize = UDim2.new(0, 0, 0, 480) -- Увеличено под новые кнопки
+Container.CanvasSize = UDim2.new(0, 0, 0, 480)
 Container.ScrollBarThickness = 4
 Container.Parent = MainFrame
 
@@ -135,11 +135,9 @@ local function CreateToggleItem(text, defaultState, callback)
 	btn.Text = ""
 	btn.AutoButtonColor = false
 	btn.Parent = Container
-
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = btn
-
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, -60, 1, 0)
 	label.Position = UDim2.new(0, 12, 0, 0)
@@ -150,18 +148,15 @@ local function CreateToggleItem(text, defaultState, callback)
 	label.Font = Enum.Font.GothamMedium
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Parent = btn
-
 	local indicator = Instance.new("Frame")
 	indicator.Size = UDim2.new(0, 22, 0, 22)
 	indicator.Position = UDim2.new(1, -32, 0.5, -11)
 	indicator.BackgroundColor3 = defaultState and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(60, 60, 75)
 	indicator.BorderSizePixel = 0
 	indicator.Parent = btn
-
 	local indCorner = Instance.new("UICorner")
 	indCorner.CornerRadius = UDim.new(0, 6)
 	indCorner.Parent = indicator
-
 	local state = defaultState
 	btn.MouseButton1Click:Connect(function()
 		state = not state
@@ -176,11 +171,9 @@ local function CreateSliderItem(text, min, max, defaultVal, callback)
 	frame.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
 	frame.BorderSizePixel = 0
 	frame.Parent = Container
-
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = frame
-
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, -24, 0, 25)
 	label.Position = UDim2.new(0, 12, 0, 4)
@@ -191,49 +184,36 @@ local function CreateSliderItem(text, min, max, defaultVal, callback)
 	label.Font = Enum.Font.GothamMedium
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Parent = frame
-
 	local sliderBar = Instance.new("Frame")
 	sliderBar.Size = UDim2.new(1, -24, 0, 6)
 	sliderBar.Position = UDim2.new(0, 12, 0, 36)
 	sliderBar.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
 	sliderBar.BorderSizePixel = 0
 	sliderBar.Parent = frame
-
 	local barCorner = Instance.new("UICorner")
 	barCorner.CornerRadius = UDim.new(1, 0)
 	barCorner.Parent = sliderBar
-
 	local sliderFill = Instance.new("Frame")
 	sliderFill.Size = UDim2.new((defaultVal - min) / (max - min), 0, 1, 0)
 	sliderFill.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
 	sliderFill.BorderSizePixel = 0
 	sliderFill.Parent = sliderBar
-
 	local fillCorner = Instance.new("UICorner")
 	fillCorner.CornerRadius = UDim.new(1, 0)
 	fillCorner.Parent = sliderFill
-
 	local dragging = false
-
 	sliderBar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true end
 	end)
-
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
 	end)
-
 	UserInputService.InputChanged:Connect(function(input)
 		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			local mousePos = UserInputService:GetMouseLocation().X
 			local barPos = sliderBar.AbsolutePosition.X
 			local barSize = sliderBar.AbsoluteSize.X
 			local percent = math.clamp((mousePos - barPos) / barSize, 0, 1)
-			
 			local val = math.floor(min + (max - min) * percent)
 			sliderFill.Size = UDim2.new(percent, 0, 1, 0)
 			label.Text = text .. ": " .. val
@@ -249,7 +229,6 @@ MinimizeButton.MouseButton1Click:Connect(function()
 	MainFrame.Size = menuVisible and UDim2.new(0, 480, 0, 36) or UDim2.new(0, 480, 0, 420)
 end)
 
--- ==================== 4. НАСТРОЙКИ МЕНЮ ====================
 CreateToggleItem("Aimbot", false, function(state) aimbotEnabled = state end)
 CreateToggleItem("FOV Circle", true, function(state) fovEnabled = state end)
 CreateSliderItem("FOV Size", 50, 400, currentFovRadius, function(val) currentFovRadius = val end)
@@ -258,7 +237,7 @@ CreateToggleItem("ESP Line (Tracer)", true, function(state) espLineEnabled = sta
 CreateToggleItem("Wall Check", true, function(state) wallCheckEnabled = state end)
 CreateSliderItem("Aim Distance", 100, 2000, maxAimDistance, function(val) maxAimDistance = val end)
 CreateToggleItem("Team Check", false, function(state) teamCheckEnabled = state end)
-CreateToggleItem("Loot & Chest ESP", true, function(state) 
+CreateToggleItem("Loot & Corpse ESP", true, function(state) 
 	lootEspEnabled = state 
 	if not state then
 		for _, hl in pairs(lootHighlights) do hl:Destroy() end
@@ -266,22 +245,13 @@ CreateToggleItem("Loot & Chest ESP", true, function(state)
 	end
 end)
 
--- ==================== 5. ESP ДЛЯ ИГРОКОВ ====================
+-- ==================== 4. ESP ДЛЯ ИГРОКОВ ====================
 local function createEspObjects(player)
 	if espCache[player] then return end
 	local box = Drawing.new("Square")
-	box.Visible = false
-	box.Color = Color3.fromRGB(255, 0, 0)
-	box.Thickness = 1
-	box.Filled = false
-	box.Transparency = 0.8
-
+	box.Visible = false; box.Color = Color3.fromRGB(255, 0, 0); box.Thickness = 1; box.Filled = false; box.Transparency = 0.8
 	local tracer = Drawing.new("Line")
-	tracer.Visible = false
-	tracer.Color = Color3.fromRGB(255, 255, 0)
-	tracer.Thickness = 1
-	tracer.Transparency = 0.7
-
+	tracer.Visible = false; tracer.Color = Color3.fromRGB(255, 255, 0); tracer.Thickness = 1; tracer.Transparency = 0.7
 	espCache[player] = { Box = box, Tracer = tracer }
 end
 
@@ -293,75 +263,98 @@ local function removeEspObjects(player)
 	end
 end
 
-for _, p in ipairs(Players:GetPlayers()) do
-	if p ~= LocalPlayer then createEspObjects(p) end
-end
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then createEspObjects(p) end end
 Players.PlayerAdded:Connect(createEspObjects)
 Players.PlayerRemoving:Connect(removeEspObjects)
 
--- ==================== 6. ПОИСК ЛУТА И СУНДУКОВ ====================
-local LootESP_Update_Interval = 0.5
-local lastLootUpdate = 0
+-- ==================== 5. УМНЫЙ LOOT ESP (БЕЗ НПС) ====================
+-- Ключевые слова для поиска (сундуки, шкафы, рюкзаки, оружие)
 local lootNames = {
-	"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", "Bag"
+	"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", 
+	"Bag", "Backpack", "Safe", "Locker", "Cabinet", "Weapon", "Gun", "Ammo", "Item"
 }
 
-RunService.RenderStepped:Connect(function()
-	if not lootEspEnabled then return end
-	if tick() - lastLootUpdate < LootESP_Update_Interval then return end
-	lastLootUpdate = tick()
+task.spawn(function()
+	while task.wait(1) do -- Обновление раз в секунду, чтобы не лагало
+		if not lootEspEnabled then continue end
 
-	-- Очистка старых хайлайтов
-	for _, hl in pairs(lootHighlights) do
-		if not hl.Parent or not hl.Adornee or not hl.Adornee.Parent then
-			hl:Destroy()
-		end
-	end
-
-	-- Поиск объектов в Workspace
-	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
-			local name = obj.Name:lower()
-			local isLoot = false
-			for _, keyword in ipairs(lootNames) do
-				if name:find(keyword:lower()) then
-					isLoot = true
-					break
-				end
+		-- Очищаем старые обводки
+		for obj, hl in pairs(lootHighlights) do
+			if not obj.Parent or not obj:IsDescendantOf(workspace) then
+				hl:Destroy()
+				lootHighlights[obj] = nil
 			end
+		end
 
-			if isLoot then
-				if not lootHighlights[obj] then
-					local hl = Instance.new("Highlight")
-					hl.Name = "LootESP_Highlight"
-					hl.Adornee = obj
-					hl.FillColor = Color3.fromRGB(255, 255, 0) -- Жёлтый цвет для лута
-					hl.OutlineColor = Color3.fromRGB(255, 165, 0)
-					hl.FillTransparency = 0.6
-					hl.OutlineTransparency = 0.2
-					hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Видно сквозь стены
-					hl.Parent = workspace
-					lootHighlights[obj] = hl
+		-- Сканируем карту
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+				local name = obj.Name:lower()
+				local isLoot = false
+				local isNpc = false
+				local isDeadPlayer = false
+
+				-- 1. Проверяем, является ли объект игроком
+				local plr = Players:GetPlayerFromCharacter(obj)
+				local humanoid = obj:FindFirstChildOfClass("Humanoid")
+
+				-- Если это игрок и он мертв (труп с лутом)
+				if plr and humanoid and humanoid.Health <= 0 then
+					isDeadPlayer = true
+				end
+
+				-- 2. Проверяем, не является ли это живым НПС
+				if not plr and humanoid then
+					if humanoid.Health > 0 then
+						isNpc = true -- Живой НПС - игнорируем
+					end
+				end
+
+				-- 3. Поиск по названию (сундуки, шкафы, оружие)
+				for _, keyword in ipairs(lootNames) do
+					if name:find(keyword:lower()) then
+						isLoot = true
+						break
+					end
+				end
+
+				-- Если объект подходит под критерии и это не живой НПС
+				if (isLoot or isDeadPlayer) and not isNpc then
+					if not lootHighlights[obj] then
+						local hl = Instance.new("Highlight")
+						hl.Name = "LootESP_Highlight"
+						hl.Adornee = obj
+						hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Видно сквозь стены
+						
+						if isDeadPlayer then
+							hl.FillColor = Color3.fromRGB(255, 0, 0) -- Красный для трупов игроков
+							hl.OutlineColor = Color3.fromRGB(255, 100, 100)
+						else
+							hl.FillColor = Color3.fromRGB(255, 255, 0) -- Желтый для сундуков/лута
+							hl.OutlineColor = Color3.fromRGB(255, 165, 0)
+						end
+						
+						hl.FillTransparency = 0.5
+						hl.OutlineTransparency = 0.1
+						hl.Parent = workspace
+						lootHighlights[obj] = hl
+					end
 				end
 			end
 		end
 	end
 end)
 
--- ==================== 7. AIMBOT ЛОГИКА ====================
+-- ==================== 6. AIMBOT ЛОГИКА ====================
 local function IsVisible(targetPart)
 	if not wallCheckEnabled then return true end
 	local localChar = LocalPlayer.Character
 	if not localChar then return false end
-	
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = {localChar, targetPart.Parent}
 	raycastParams.IgnoreWater = true
-
-	local origin = Camera.CFrame.Position
-	local direction = (targetPart.Position - origin)
-	local result = workspace:Raycast(origin, direction, raycastParams)
+	local result = workspace:Raycast(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position), raycastParams)
 	return result == nil
 end
 
@@ -389,11 +382,9 @@ local function GetClosestTarget()
 						if screenPoint.Z > 0 then
 							local screenPos = Vector2.new(screenPoint.X, screenPoint.Y)
 							local dist = (screenPos - screenCenter).Magnitude
-							if dist < shortestDist then
-								if IsVisible(targetPart) then
-									shortestDist = dist
-									bestTarget = targetPart
-								end
+							if dist < shortestDist and IsVisible(targetPart) then
+								shortestDist = dist
+								bestTarget = targetPart
 							end
 						end
 					end
@@ -412,9 +403,7 @@ RunService.RenderStepped:Connect(function()
 	if aimbotEnabled then
 		pcall(function()
 			local target = GetClosestTarget()
-			if target then
-				Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position)
-			end
+			if target then Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position) end
 		end)
 	end
 
@@ -434,11 +423,8 @@ RunService.RenderStepped:Connect(function()
 						if esp.Box then esp.Box.Visible = false end
 						if esp.Tracer then esp.Tracer.Visible = false end
 					else
-						local topPosition = hrp.Position + Vector3.new(0, 3, 0)
-						local bottomPosition = hrp.Position - Vector3.new(0, 3.5, 0)
-						
-						local topScreen, topVisible = Camera:WorldToViewportPoint(topPosition)
-						local bottomScreen, bottomVisible = Camera:WorldToViewportPoint(bottomPosition)
+						local topScreen, topVisible = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
+						local bottomScreen, bottomVisible = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.5, 0))
 
 						if (topVisible or bottomVisible) and topScreen.Z > 0 and bottomScreen.Z > 0 then
 							local height = math.abs(topScreen.Y - bottomScreen.Y)
@@ -449,17 +435,13 @@ RunService.RenderStepped:Connect(function()
 								esp.Box.Position = Vector2.new(topScreen.X - width / 2, topScreen.Y)
 								esp.Box.Color = isTeam and Color3.fromRGB(0, 150, 255) or Color3.fromRGB(255, 0, 0)
 								esp.Box.Visible = true
-							elseif esp.Box then
-								esp.Box.Visible = false
-							end
+							elseif esp.Box then esp.Box.Visible = false end
 
 							if espLineEnabled and esp.Tracer then
 								esp.Tracer.From = Vector2.new(screenCenter.X, Camera.ViewportSize.Y)
 								esp.Tracer.To = Vector2.new(bottomScreen.X, bottomScreen.Y)
 								esp.Tracer.Visible = true
-							elseif esp.Tracer then
-								esp.Tracer.Visible = false
-							end
+							elseif esp.Tracer then esp.Tracer.Visible = false end
 						else
 							if esp.Box then esp.Box.Visible = false end
 							if esp.Tracer then esp.Tracer.Visible = false end
@@ -476,4 +458,4 @@ RunService.RenderStepped:Connect(function()
 	end)
 end)
 
-print("Aimbot Hub & Optimized Loot ESP Loaded Successfully!")
+print("Smart Loot ESP & Aimbot Loaded Successfully!")
