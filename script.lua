@@ -6,11 +6,11 @@ local Camera = workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 if not Drawing then
-	warn("Твой инжектор не поддерживает Drawing!")
+	warn("Твой инжектор не поддерживает Drawing! ESP не будет работать.")
 	return
 end
 
--- Очистка старого
+-- Очистка старого мусора
 if PlayerGui:FindFirstChild("UniversalAimbotHub") then PlayerGui.UniversalAimbotHub:Destroy() end
 if getgenv()._EspCache then
 	for _, cache in pairs(getgenv()._EspCache) do
@@ -23,20 +23,20 @@ getgenv()._EspCache = {}
 local espCache = getgenv()._EspCache
 local lootHighlights = {}
 
--- ==================== 1. НАСТРОЙКИ ====================
+-- ==================== НАСТРОЙКИ ====================
 local aimbotEnabled = false
 local fovEnabled = true
 local espBoxEnabled = true
 local espLineEnabled = true
-local espNameEnabled = true -- НОВАЯ КНОПКА ДЛЯ НИКОВ
+local espNameEnabled = true 
 local wallCheckEnabled = true
 local teamCheckEnabled = false
 local lootEspEnabled = true
 
 local currentFovRadius = 150
-local maxAimDistance = 10000
+local maxAimDistance = 10000 -- 10к дистанция
 
--- ==================== 2. FOV ====================
+-- ==================== FOV ====================
 local FovCircle = Drawing.new("Circle")
 FovCircle.Visible = fovEnabled
 FovCircle.Radius = currentFovRadius
@@ -52,7 +52,7 @@ RunService.RenderStepped:Connect(function()
 	FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 end)
 
--- ==================== 3. UI ====================
+-- ==================== UI (Меню) ====================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "UniversalAimbotHub"
 ScreenGui.Parent = PlayerGui
@@ -91,7 +91,7 @@ FixTitle.Parent = TitleBar
 local TitleText = Instance.new("TextLabel")
 TitleText.Size = UDim2.new(1, -50, 1, 0)
 TitleText.Position = UDim2.new(0, 12, 0, 0)
-TitleText.Text = "Aimbot & Full ESP (Names, Loot)"
+TitleText.Text = "Decay PVP - Aimbot & ESP"
 TitleText.TextColor3 = Color3.fromRGB(240, 240, 240)
 TitleText.TextSize = 14
 TitleText.Font = Enum.Font.GothamBold
@@ -234,9 +234,9 @@ CreateToggleItem("FOV Circle", true, function(state) fovEnabled = state end)
 CreateSliderItem("FOV Size", 50, 400, currentFovRadius, function(val) currentFovRadius = val end)
 CreateToggleItem("ESP Box", true, function(state) espBoxEnabled = state if not state then for _, data in pairs(espCache) do if data.Box then data.Box.Visible = false end end end end)
 CreateToggleItem("ESP Line", true, function(state) espLineEnabled = state if not state then for _, data in pairs(espCache) do if data.Tracer then data.Tracer.Visible = false end end end end)
-CreateToggleItem("ESP Names", true, function(state) espNameEnabled = state if not state then for _, data in pairs(espCache) do if data.NameText then data.NameText.Visible = false end end end end) -- Кнопка ников
+CreateToggleItem("ESP Names + HP", true, function(state) espNameEnabled = state if not state then for _, data in pairs(espCache) do if data.NameText then data.NameText.Visible = false end end end end) 
 CreateToggleItem("Wall Check", true, function(state) wallCheckEnabled = state end)
-CreateSliderItem("Max Distance", 100, 10000, maxAimDistance, function(val) maxAimDistance = val end)
+CreateSliderItem("Max Distance", 100, 10000, maxAimDistance, function(val) maxAimDistance = val end) 
 CreateToggleItem("Team Check", false, function(state) teamCheckEnabled = state end)
 CreateToggleItem("Loot & Corpse ESP", true, function(state) 
 	lootEspEnabled = state 
@@ -246,24 +246,15 @@ CreateToggleItem("Loot & Corpse ESP", true, function(state)
 	end
 end)
 
--- ==================== 4. СОЗДАНИЕ ОБЪЕКТОВ ESP ====================
+-- ==================== ESP ====================
 local function createEspObjects(player)
 	if espCache[player] then return end
-	
 	local box = Drawing.new("Square")
 	box.Visible = false; box.Color = Color3.fromRGB(255, 0, 0); box.Thickness = 1; box.Filled = false; box.Transparency = 0.8
-	
 	local tracer = Drawing.new("Line")
 	tracer.Visible = false; tracer.Color = Color3.fromRGB(255, 255, 0); tracer.Thickness = 1; tracer.Transparency = 0.7
-	
-	-- Улучшенный текст для ников
 	local nameText = Drawing.new("Text")
-	nameText.Visible = false
-	nameText.Size = 18 -- Сделал шрифт больше
-	nameText.Center = true
-	nameText.Outline = true -- Черная обводка вокруг букв
-	nameText.Color = Color3.fromRGB(255, 255, 255)
-	
+	nameText.Visible = false; nameText.Size = 16; nameText.Center = true; nameText.Outline = true; nameText.Color = Color3.fromRGB(255, 255, 255)
 	espCache[player] = { Box = box, Tracer = tracer, NameText = nameText }
 end
 
@@ -280,7 +271,7 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then createEspOb
 Players.PlayerAdded:Connect(createEspObjects)
 Players.PlayerRemoving:Connect(removeEspObjects)
 
--- ==================== 5. ПОИСК ЛУТА (БЕЗ НПС) ====================
+-- ==================== LOOT ESP ====================
 local lootNames = {"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", "Bag", "Backpack", "Safe", "Locker", "Cabinet", "Weapon", "Gun", "Ammo", "Item"}
 
 task.spawn(function()
@@ -329,7 +320,7 @@ task.spawn(function()
 	end
 end)
 
--- ==================== 6. АИМБОТ ====================
+-- ==================== AIMBOT ====================
 local function IsVisible(targetPart)
 	if not wallCheckEnabled then return true end
 	local localChar = LocalPlayer.Character
@@ -378,7 +369,7 @@ local function GetClosestTarget()
 	return bestTarget
 end
 
--- ==================== 7. ГЛАВНЫЙ ЦИКЛ ОТРИСОВКИ ====================
+-- ==================== ОСНОВНОЙ ЦИКЛ ====================
 RunService.RenderStepped:Connect(function()
 	local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 	local localChar = LocalPlayer.Character
@@ -416,7 +407,6 @@ RunService.RenderStepped:Connect(function()
 							local width = height / 2
 							local boxColor = isTeam and Color3.fromRGB(0, 150, 255) or Color3.fromRGB(255, 0, 0)
 
-							-- Рисуем Бокс
 							if espBoxEnabled and esp.Box then
 								esp.Box.Size = Vector2.new(width, height)
 								esp.Box.Position = Vector2.new(topScreen.X - width / 2, topScreen.Y)
@@ -426,7 +416,6 @@ RunService.RenderStepped:Connect(function()
 								esp.Box.Visible = false
 							end
 
-							-- Рисуем Линию
 							if espLineEnabled and esp.Tracer then
 								esp.Tracer.From = Vector2.new(screenCenter.X, Camera.ViewportSize.Y)
 								esp.Tracer.To = Vector2.new(bottomScreen.X, bottomScreen.Y)
@@ -435,11 +424,12 @@ RunService.RenderStepped:Connect(function()
 								esp.Tracer.Visible = false
 							end
 
-							-- Рисуем Ник (Имя игрока)
 							if espNameEnabled and esp.NameText then
-								-- Берем DisplayName, если его нет, то обычный Name
 								local showName = player.DisplayName or player.Name
-								esp.NameText.Text = showName .. " [" .. math.floor(distToPlayer) .. "m]"
+								local hp = math.floor(humanoid.Health)
+								local maxHp = math.floor(humanoid.MaxHealth)
+								
+								esp.NameText.Text = showName .. " | " .. hp .. "/" .. maxHp .. " HP | " .. math.floor(distToPlayer) .. "m"
 								esp.NameText.Position = Vector2.new(topScreen.X, topScreen.Y - 22)
 								esp.NameText.Color = boxColor
 								esp.NameText.Visible = true
@@ -464,4 +454,4 @@ RunService.RenderStepped:Connect(function()
 	end)
 end)
 
-print("ESP Names, Loot & Aimbot loaded!")
+print("Скрипт успешно запущен!")
