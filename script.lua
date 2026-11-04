@@ -1,4 +1,4 @@
---- Загрузка Rayfield
+-- Загрузка Rayfield
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
@@ -28,9 +28,8 @@ if getgenv()._EspCache then
     end
 end
 getgenv()._EspCache = {}
-local charCache = getgenv()._EspCache 
+local espObjects = getgenv()._EspCache
 local lootHighlights = {}
-local doorTexts = {}
 
 -- Настройки
 local aimbotEnabled = false
@@ -39,17 +38,51 @@ local aimFov = 150
 local maxDistance = 5000 
 local espPlayers = true
 local espLoot = true
-local espDoors = true
 local ignoreFriends = true 
 local ignoreTeam = true    
+local forceSun = true 
+local forcedFov = 70 
+local noShadows = false -- По умолчанию тени оставляем
 
--- Сохраняем оригинальные настройки света
-local originalBrightness = Lighting.Brightness
-local originalFogEnd = Lighting.FogEnd
+-- ==================== НОРМАЛЬНЫЙ ДЕНЬ ====================
+local function ApplyLighting()
+    if not forceSun then return end
+    
+    -- Ставим нормальное время и яркость
+    Lighting.ClockTime = 14
+    Lighting.Brightness = 2
+    
+    -- Нормальное освещение (не чисто белый, чтобы был объем)
+    Lighting.Ambient = Color3.fromRGB(80, 80, 80) 
+    Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+    
+    -- Вырубаем туман
+    Lighting.FogEnd = 100000
+    Lighting.FogStart = 0
+    
+    -- Тени вкл/выкл по кнопке
+    Lighting.GlobalShadows = not noShadows
+    
+    -- Убираем только мешающую атмосферу, но не трогаем цвета
+    for _, effect in ipairs(Lighting:GetChildren()) do
+        if effect:IsA("Atmosphere") then
+            effect.Density = 0
+            effect.Haze = 0
+            effect.Glare = 0
+        end
+    end
+end
+
+-- Обновляем свет раз в секунду, чтобы игра не сбрасывала
+task.spawn(function()
+    while task.wait(1) do
+        ApplyLighting()
+    end
+end)
 
 -- ==================== ОКНО RAYFIELD ====================
 local Window = Rayfield:CreateWindow({
-    Name = "Decay Hub | Ultimate",
+    Name = "Decay Hub | Sun & ESP",
     LoadingTitle = "Загрузка...",
     LoadingSubtitle = "by AI",
     ConfigurationSaving = { Enabled = false },
@@ -91,7 +124,7 @@ TabAim:CreateSlider({
 })
 
 TabAim:CreateSlider({
-    Name = "Размер FOV (Аимбота)",
+    Name = "Размер FOV",
     Range = {50, 600},
     Increment = 10,
     Suffix = " studs",
@@ -114,13 +147,13 @@ TabEsp:CreateSlider({
 })
 
 TabEsp:CreateToggle({
-    Name = "ESP Игроков (Вкл. Спящих)",
+    Name = "ESP Игроков",
     CurrentValue = true,
     Flag = "EspPlr",
     Callback = function(v) 
         espPlayers = v 
         if not v then
-            for _, d in pairs(charCache) do
+            for _, d in pairs(espObjects) do
                 if d.Box then d.Box.Visible = false end
                 if d.Text then d.Text.Visible = false end
             end
@@ -129,7 +162,7 @@ TabEsp:CreateToggle({
 })
 
 TabEsp:CreateToggle({
-    Name = "ESP Лута и Трупов",
+    Name = "ESP Лута",
     CurrentValue = true,
     Flag = "EspLoot",
     Callback = function(v) 
@@ -141,51 +174,26 @@ TabEsp:CreateToggle({
     end,
 })
 
-TabEsp:CreateToggle({
-    Name = "ESP Дверей и Кодов",
-    CurrentValue = true,
-    Flag = "EspDoor",
-    Callback = function(v) 
-        espDoors = v
-        if not v then
-            for _, txt in pairs(doorTexts) do txt:Remove() end
-            doorTexts = {}
-        end
-    end,
-})
-
 -- ==================== ВКЛАДКА: ВИЗУАЛ ====================
 local TabVisual = Window:CreateTab("World / Visuals", 4483362458)
 
 TabVisual:CreateToggle({
-    Name = "Fullbright (Убрать тени)",
-    CurrentValue = false,
-    Flag = "Fullbright",
+    Name = "День без тумана",
+    CurrentValue = true, 
+    Flag = "ForceSun",
     Callback = function(v)
-        if v then
-            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-            Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-            Lighting.Brightness = 3
-        else
-            Lighting.Ambient = Color3.fromRGB(0, 0, 0)
-            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-            Lighting.Brightness = originalBrightness
-        end
+        forceSun = v
+        if forceSun then ApplyLighting() end
     end,
 })
 
 TabVisual:CreateToggle({
-    Name = "No Fog (Убрать туман)",
-    CurrentValue = false,
-    Flag = "NoFog",
+    Name = "Убрать тени (Плоский вид)",
+    CurrentValue = false, 
+    Flag = "NoShadows",
     Callback = function(v)
-        if v then
-            Lighting.FogEnd = 1000000
-            Lighting.FogStart = 0
-        else
-            Lighting.FogEnd = originalFogEnd
-            Lighting.FogStart = 0
-        end
+        noShadows = v
+        ApplyLighting()
     end,
 })
 
@@ -197,7 +205,8 @@ TabVisual:CreateSlider({
     CurrentValue = 70,
     Flag = "CamFOV",
     Callback = function(v)
-        Camera.FieldOfView = v
+        forcedFov = v
+        Camera.FieldOfView = forcedFov 
     end,
 })
 
@@ -213,7 +222,7 @@ local function isTeammate(player)
     return player.Team ~= nil and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
 end
 
--- ==================== ЛОГИКА ОТРИСОВКИ ESP ====================
+-- ==================== ГЛАВНЫЙ ЦИКЛ ESP ====================
 if hasDrawing then
     local FovCircle = Drawing.new("Circle")
     FovCircle.Visible = true
@@ -223,114 +232,119 @@ if hasDrawing then
     FovCircle.Filled = false
     FovCircle.Transparency = 0.8
 
-    local function setupEsp(model)
-        if not model or model == LocalPlayer.Character or charCache[model] then return end
-        
-        local box = Drawing.new("Square")
-        box.Visible = false; box.Thickness = 1; box.Filled = false
-        
-        local text = Drawing.new("Text")
-        text.Visible = false; text.Size = 16; text.Center = true; text.Outline = true
-        
-        charCache[model] = { Box = box, Text = text }
-    end
-
-    local function checkNewModel(child)
-        if child:IsA("Model") and child:FindFirstChildOfClass("Humanoid") and child:FindFirstChild("HumanoidRootPart") then
-            setupEsp(child)
-        end
-    end
-
-    for _, obj in ipairs(workspace:GetChildren()) do checkNewModel(obj) end
-    workspace.ChildAdded:Connect(function(child)
-        task.wait(0.2)
-        checkNewModel(child)
-    end)
-
     RunService.RenderStepped:Connect(function()
+        -- Блокировка сброса FOV при беге
+        if Camera.FieldOfView ~= forcedFov then
+            Camera.FieldOfView = forcedFov
+        end
+
         local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        
         FovCircle.Position = center
         FovCircle.Radius = aimFov
 
         local closestTarget = nil
         local minDist = aimFov
+        
+        local validModels = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                table.insert(validModels, p.Character)
+            end
+        end
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") and obj:FindFirstChildOfClass("Humanoid") then
+                if not Players:GetPlayerFromCharacter(obj) then
+                    table.insert(validModels, obj)
+                end
+            end
+        end
 
-        for model, esp in pairs(charCache) do
-            if not model.Parent then
-                if esp.Box then esp.Box:Remove() end
-                if esp.Text then esp.Text:Remove() end
-                charCache[model] = nil
-            else
-                local hrp = model:FindFirstChild("HumanoidRootPart")
-                local head = model:FindFirstChild("Head")
-                local humanoid = model:FindFirstChildOfClass("Humanoid")
-                local player = Players:GetPlayerFromCharacter(model)
+        for _, model in ipairs(validModels) do
+            local hrp = model:FindFirstChild("HumanoidRootPart")
+            local head = model:FindFirstChild("Head")
+            local humanoid = model:FindFirstChildOfClass("Humanoid")
+            local player = Players:GetPlayerFromCharacter(model)
+            
+            if hrp and head and humanoid then
+                local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+                local isSleeping = (player == nil) or model:GetAttribute("Sleeping") or humanoid.Health <= 0
+                
+                if not espObjects[model] then
+                    local box = Drawing.new("Square")
+                    box.Visible = false; box.Thickness = 1; box.Filled = false
+                    local text = Drawing.new("Text")
+                    text.Visible = false; text.Size = 16; text.Center = true; text.Outline = true
+                    espObjects[model] = { Box = box, Text = text }
+                end
+                local esp = espObjects[model]
 
-                if hrp and head and humanoid then
-                    local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
-                    local isSleeping = (player == nil) or model:GetAttribute("Sleeping") or humanoid.Health <= 0
-                    
-                    if dist <= maxDistance then
-                        local topPos, topOn = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 2.5, 0))
-                        local botPos, botOn = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                if dist <= maxDistance then
+                    local topPos, topOn = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 2.5, 0))
+                    local botPos, botOn = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
 
-                        if (topOn or botOn) and topPos.Z > 0 then
-                            if espPlayers then
-                                -- РЕАЛЬНЫЙ РАЗМЕР БЕЗ ИСКУССТВЕННОГО УВЕЛИЧЕНИЯ
-                                local h = math.abs(topPos.Y - botPos.Y)
-                                local w = h / 2
+                    if (topOn or botOn) and topPos.Z > 0 then
+                        if espPlayers then
+                            local h = math.abs(topPos.Y - botPos.Y)
+                            local w = h / 2
+                            h = math.clamp(h, 15, 500)
+                            w = math.clamp(w, 8, 250)
 
-                                esp.Box.Size = Vector2.new(w, h)
-                                esp.Box.Position = Vector2.new(topPos.X - w/2, topPos.Y)
-                                
-                                local displayName = player and player.DisplayName or model.Name
-                                
-                                if isSleeping then
-                                    esp.Box.Color = Color3.fromRGB(0, 150, 255)
-                                    esp.Text.Color = Color3.fromRGB(0, 150, 255)
-                                    esp.Text.Text = displayName .. " [СПИТ] | " .. math.floor(dist) .. "m"
-                                else
-                                    if player and (isFriend(player) or isTeammate(player)) then
-                                        esp.Box.Color = Color3.fromRGB(0, 255, 0)
-                                    else
-                                        esp.Box.Color = Color3.fromRGB(255, 0, 0)
-                                    end
-                                    esp.Text.Color = Color3.fromRGB(255, 255, 255)
-                                    esp.Text.Text = displayName .. " | " .. math.floor(humanoid.Health) .. " HP | " .. math.floor(dist) .. "m"
-                                end
-                                
-                                esp.Box.Visible = true
-                                esp.Text.Position = Vector2.new(topPos.X, topPos.Y - 20)
-                                esp.Text.Visible = true
+                            esp.Box.Size = Vector2.new(w, h)
+                            esp.Box.Position = Vector2.new(topPos.X - w/2, topPos.Y)
+                            
+                            local displayName = player and player.DisplayName or model.Name
+                            
+                            if isSleeping then
+                                esp.Box.Color = Color3.fromRGB(0, 150, 255)
+                                esp.Text.Color = Color3.fromRGB(0, 150, 255)
+                                esp.Text.Text = displayName .. " [СПИТ] | " .. math.floor(dist) .. "m"
                             else
-                                esp.Box.Visible = false; esp.Text.Visible = false
+                                if player and (isFriend(player) or isTeammate(player)) then
+                                    esp.Box.Color = Color3.fromRGB(0, 255, 0)
+                                else
+                                    esp.Box.Color = Color3.fromRGB(255, 0, 0)
+                                end
+                                esp.Text.Color = Color3.fromRGB(255, 255, 255)
+                                esp.Text.Text = displayName .. " | " .. math.floor(humanoid.Health) .. " HP | " .. math.floor(dist) .. "m"
                             end
+                            
+                            esp.Box.Visible = true
+                            esp.Text.Position = Vector2.new(topPos.X, topPos.Y - 20)
+                            esp.Text.Visible = true
                         else
                             esp.Box.Visible = false; esp.Text.Visible = false
                         end
                     else
                         esp.Box.Visible = false; esp.Text.Visible = false
                     end
+                else
+                    esp.Box.Visible = false; esp.Text.Visible = false
+                end
 
-                    -- АИМБОТ
-                    if aimbotEnabled and player and not isSleeping then
-                        local skipTarget = false
-                        if ignoreFriends and isFriend(player) then skipTarget = true end
-                        if ignoreTeam and isTeammate(player) then skipTarget = true end
+                if aimbotEnabled and player and not isSleeping then
+                    local skipTarget = false
+                    if ignoreFriends and isFriend(player) then skipTarget = true end
+                    if ignoreTeam and isTeammate(player) then skipTarget = true end
 
-                        if not skipTarget then
-                            local headPos, headOn = Camera:WorldToViewportPoint(head.Position)
-                            if headOn and headPos.Z > 0 then
-                                local d = (Vector2.new(headPos.X, headPos.Y) - center).Magnitude
-                                if d < minDist then
-                                    minDist = d
-                                    closestTarget = head
-                                end
+                    if not skipTarget then
+                        local headPos, headOn = Camera:WorldToViewportPoint(head.Position)
+                        if headOn and headPos.Z > 0 then
+                            local d = (Vector2.new(headPos.X, headPos.Y) - center).Magnitude
+                            if d < minDist then
+                                minDist = d
+                                closestTarget = head
                             end
                         end
                     end
                 end
+            end
+        end
+        
+        for model, esp in pairs(espObjects) do
+            if not model.Parent or not model:FindFirstChild("HumanoidRootPart") then
+                esp.Box:Remove()
+                esp.Text:Remove()
+                espObjects[model] = nil
             end
         end
 
@@ -345,10 +359,9 @@ if hasDrawing then
     end)
 end
 
--- ==================== СКАНЕР КАРТЫ ====================
+-- ==================== СКАНЕР ЛУТА ====================
 task.spawn(function()
     local lootNames = {"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", "Bag", "Backpack", "Safe", "Locker", "Cabinet", "Weapon", "Gun", "Ammo", "Item"}
-    local doorNames = {"door", "gate", "fence", "keypad", "lock", "passcode", "code", "barrier", "entrance"}
 
     while task.wait(1.5) do 
         for obj, hl in pairs(lootHighlights) do
@@ -362,13 +375,12 @@ task.spawn(function()
         for _, obj in ipairs(workspace:GetChildren()) do
             if obj:IsA("Model") or obj:IsA("BasePart") then
                 local name = obj.Name:lower()
-                local isLoot, isDoor = false, false
+                local isLoot = false
                 
                 local objPos = obj:IsA("Model") and (obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position) or obj.Position
                 if localHRP and objPos and (localHRP.Position - objPos).Magnitude > 5000 then continue end
 
                 for _, kw in ipairs(lootNames) do if name:find(kw) then isLoot = true break end end
-                for _, kw in ipairs(doorNames) do if name:find(kw) then isDoor = true break end end
 
                 if espLoot and isLoot then
                     if not lootHighlights[obj] then
@@ -380,36 +392,6 @@ task.spawn(function()
                         hl.FillTransparency = 0.6
                         hl.Parent = workspace
                         lootHighlights[obj] = hl
-                    end
-                end
-
-                if espDoors and isDoor and hasDrawing then
-                    local code = nil
-                    for _, child in ipairs(obj:GetChildren()) do
-                        if child:IsA("StringValue") or child:IsA("IntValue") then
-                            if child.Name:lower():find("code") or child.Name:lower():find("pass") then
-                                code = tostring(child.Value)
-                            end
-                        end
-                    end
-                    if not code then
-                        for attr, val in pairs(obj:GetAttributes()) do
-                            if attr:lower():find("code") or attr:lower():find("pass") then code = tostring(val) end
-                        end
-                    end
-
-                    if code then
-                        if not doorTexts[obj] then doorTexts[obj] = Drawing.new("Text") end
-                        local screenPos, onScreen = Camera:WorldToViewportPoint(objPos + Vector3.new(0, 3, 0))
-                        
-                        doorTexts[obj].Visible = onScreen
-                        if onScreen then
-                            doorTexts[obj].Text = "Код: " .. code
-                            doorTexts[obj].Position = Vector2.new(screenPos.X, screenPos.Y)
-                            doorTexts[obj].Color = Color3.fromRGB(0, 255, 0)
-                            doorTexts[obj].Size = 18
-                            doorTexts[obj].Outline = true
-                        end
                     end
                 end
             end
