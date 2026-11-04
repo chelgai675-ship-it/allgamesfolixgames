@@ -1,4 +1,4 @@
--- Загрузка Rayfield
+--- Загрузка Rayfield
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
@@ -43,10 +43,9 @@ local espDoors = true
 local ignoreFriends = true 
 local ignoreTeam = true    
 
--- Сохраняем оригинальные настройки света, чтобы можно было вернуть
+-- Сохраняем оригинальные настройки света
 local originalBrightness = Lighting.Brightness
 local originalFogEnd = Lighting.FogEnd
-local originalFov = Camera.FieldOfView
 
 -- ==================== ОКНО RAYFIELD ====================
 local Window = Rayfield:CreateWindow({
@@ -155,7 +154,7 @@ TabEsp:CreateToggle({
     end,
 })
 
--- ==================== ВКЛАДКА: ВИЗУАЛ (FULLBRIGHT / NO FOG) ====================
+-- ==================== ВКЛАДКА: ВИЗУАЛ ====================
 local TabVisual = Window:CreateTab("World / Visuals", 4483362458)
 
 TabVisual:CreateToggle({
@@ -191,7 +190,7 @@ TabVisual:CreateToggle({
 })
 
 TabVisual:CreateSlider({
-    Name = "Расширенный FOV (Обзор)",
+    Name = "Расширенный FOV (Зум)",
     Range = {70, 120},
     Increment = 1,
     Suffix = "°",
@@ -201,16 +200,6 @@ TabVisual:CreateSlider({
         Camera.FieldOfView = v
     end,
 })
-
--- ==================== МОБИЛЬНАЯ КНОПКА ====================
--- Используем стандартный механизм Rayfield для мобилок
-pcall(function()
-    Rayfield:Notify({
-        Title = "Мобильная кнопка",
-        Content = "Если меню пропало, нажми на иконку Rayfield на экране.",
-        Duration = 5,
-    })
-end)
 
 -- ==================== ФУНКЦИИ ДЛЯ ПРОВЕРКИ ====================
 local function isFriend(player)
@@ -241,7 +230,7 @@ if hasDrawing then
         box.Visible = false; box.Thickness = 1; box.Filled = false
         
         local text = Drawing.new("Text")
-        text.Visible = false; text.Size = 18; text.Center = true; text.Outline = true
+        text.Visible = false; text.Size = 16; text.Center = true; text.Outline = true
         
         charCache[model] = { Box = box, Text = text }
     end
@@ -283,17 +272,14 @@ if hasDrawing then
                     local isSleeping = (player == nil) or model:GetAttribute("Sleeping") or humanoid.Health <= 0
                     
                     if dist <= maxDistance then
-                        local topPos, topOn = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
-                        local botPos, botOn = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.5, 0))
+                        local topPos, topOn = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 2.5, 0))
+                        local botPos, botOn = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
 
                         if (topOn or botOn) and topPos.Z > 0 then
                             if espPlayers then
+                                -- РЕАЛЬНЫЙ РАЗМЕР БЕЗ ИСКУССТВЕННОГО УВЕЛИЧЕНИЯ
                                 local h = math.abs(topPos.Y - botPos.Y)
                                 local w = h / 2
-                                
-                                -- ЖЕСТКИЙ ФИКС РАЗМЕРА ДЛЯ ДАЛЬНИХ ДИСТАНЦИЙ
-                                if h < 30 then h = 30 end 
-                                if w < 15 then w = 15 end
 
                                 esp.Box.Size = Vector2.new(w, h)
                                 esp.Box.Position = Vector2.new(topPos.X - w/2, topPos.Y)
@@ -315,7 +301,7 @@ if hasDrawing then
                                 end
                                 
                                 esp.Box.Visible = true
-                                esp.Text.Position = Vector2.new(topPos.X, topPos.Y - 25)
+                                esp.Text.Position = Vector2.new(topPos.X, topPos.Y - 20)
                                 esp.Text.Visible = true
                             else
                                 esp.Box.Visible = false; esp.Text.Visible = false
@@ -359,7 +345,7 @@ if hasDrawing then
     end)
 end
 
--- ==================== СКАНЕР КАРТЫ (ЛУТ И ДВЕРИ) ====================
+-- ==================== СКАНЕР КАРТЫ ====================
 task.spawn(function()
     local lootNames = {"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", "Bag", "Backpack", "Safe", "Locker", "Cabinet", "Weapon", "Gun", "Ammo", "Item"}
     local doorNames = {"door", "gate", "fence", "keypad", "lock", "passcode", "code", "barrier", "entrance"}
@@ -421,7 +407,7 @@ task.spawn(function()
                             doorTexts[obj].Text = "Код: " .. code
                             doorTexts[obj].Position = Vector2.new(screenPos.X, screenPos.Y)
                             doorTexts[obj].Color = Color3.fromRGB(0, 255, 0)
-                            doorTexts[obj].Size = 20
+                            doorTexts[obj].Size = 18
                             doorTexts[obj].Outline = true
                         end
                     end
