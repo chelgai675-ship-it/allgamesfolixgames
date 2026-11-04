@@ -1,457 +1,310 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+-- Загрузка Rayfield
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
 
-if not Drawing then
-	warn("Твой инжектор не поддерживает Drawing! ESP не будет работать.")
-	return
+if not success then
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Ошибка",
+        Text = "Codex не может загрузить Rayfield. Используй Delta или Xeno!",
+        Duration = 10
+    })
+    return
 end
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local hasDrawing = pcall(function() return Drawing.new("Square") end)
+
 -- Очистка старого мусора
-if PlayerGui:FindFirstChild("UniversalAimbotHub") then PlayerGui.UniversalAimbotHub:Destroy() end
 if getgenv()._EspCache then
-	for _, cache in pairs(getgenv()._EspCache) do
-		if cache.Box then cache.Box:Remove() end
-		if cache.Tracer then cache.Tracer:Remove() end
-		if cache.NameText then cache.NameText:Remove() end
-	end
+    for _, v in pairs(getgenv()._EspCache) do
+        if v.Box then v.Box:Remove() end
+        if v.Text then v.Text:Remove() end
+    end
 end
 getgenv()._EspCache = {}
 local espCache = getgenv()._EspCache
 local lootHighlights = {}
+local doorTexts = {}
 
--- ==================== НАСТРОЙКИ ====================
+-- Настройки (Дистанция по умолчанию 5000)
 local aimbotEnabled = false
-local fovEnabled = true
-local espBoxEnabled = true
-local espLineEnabled = true
-local espNameEnabled = true 
-local wallCheckEnabled = true
-local teamCheckEnabled = false
-local lootEspEnabled = true
+local aimSmoothness = 1
+local fovSize = 150
+local maxDistance = 5000 
+local espPlayers = true
+local espLoot = true
+local espDoors = true
 
-local currentFovRadius = 150
-local maxAimDistance = 10000 -- 10к дистанция
+-- ==================== ОКНО RAYFIELD ====================
+local Window = Rayfield:CreateWindow({
+    Name = "Decay Hub | 5K Distance",
+    LoadingTitle = "Загрузка...",
+    LoadingSubtitle = "by AI Assistant",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
 
--- ==================== FOV ====================
-local FovCircle = Drawing.new("Circle")
-FovCircle.Visible = fovEnabled
-FovCircle.Radius = currentFovRadius
-FovCircle.Color = Color3.fromRGB(255, 255, 255)
-FovCircle.Thickness = 1.5
-FovCircle.Filled = false
-FovCircle.Transparency = 0.8
-FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+-- ==================== ВКЛАДКА: AIMBOT ====================
+local TabAim = Window:CreateTab("Aimbot", 4483362458)
 
-RunService.RenderStepped:Connect(function()
-	FovCircle.Visible = fovEnabled
-	FovCircle.Radius = currentFovRadius
-	FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-end)
+TabAim:CreateToggle({
+    Name = "Включить Aimbot",
+    CurrentValue = false,
+    Flag = "AimToggle",
+    Callback = function(v) aimbotEnabled = v end,
+})
 
--- ==================== UI (Меню) ====================
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "UniversalAimbotHub"
-ScreenGui.Parent = PlayerGui
-ScreenGui.ResetOnSpawn = false
+TabAim:CreateSlider({
+    Name = "Плавность",
+    Range = {1, 20},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = 1,
+    Flag = "AimSmooth",
+    Callback = function(v) aimSmoothness = v end,
+})
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 480, 0, 460)
-MainFrame.Position = UDim2.new(0.5, -240, 0.5, -230)
-MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
+TabAim:CreateSlider({
+    Name = "Размер FOV",
+    Range = {50, 600},
+    Increment = 10,
+    Suffix = " studs",
+    CurrentValue = 150,
+    Flag = "AimFOV",
+    Callback = function(v) fovSize = v end,
+})
 
-local UICornerMain = Instance.new("UICorner")
-UICornerMain.CornerRadius = UDim.new(0, 10)
-UICornerMain.Parent = MainFrame
+-- ==================== ВКЛАДКА: ESP ====================
+local TabEsp = Window:CreateTab("ESP & Wallhack", 4483362458)
 
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 36)
-TitleBar.BackgroundColor3 = Color3.fromRGB(26, 26, 32)
-TitleBar.BorderSizePixel = 0
-TitleBar.Parent = MainFrame
+TabEsp:CreateSlider({
+    Name = "Макс. Дистанция (ESP)",
+    Range = {100, 10000},
+    Increment = 100,
+    Suffix = "m",
+    CurrentValue = 5000, -- СТОИТ 5000
+    Flag = "EspDist",
+    Callback = function(v) maxDistance = v end,
+})
 
-local UICornerTitle = Instance.new("UICorner")
-UICornerTitle.CornerRadius = UDim.new(0, 10)
-UICornerTitle.Parent = TitleBar
+TabEsp:CreateToggle({
+    Name = "ESP Игроков (Ники, HP)",
+    CurrentValue = true,
+    Flag = "EspPlr",
+    Callback = function(v) 
+        espPlayers = v 
+        if not v then
+            for _, d in pairs(espCache) do
+                if d.Box then d.Box.Visible = false end
+                if d.Text then d.Text.Visible = false end
+            end
+        end
+    end,
+})
 
-local FixTitle = Instance.new("Frame")
-FixTitle.Size = UDim2.new(1, 0, 0, 6)
-FixTitle.Position = UDim2.new(0, 0, 1, -6)
-FixTitle.BackgroundColor3 = Color3.fromRGB(26, 26, 32)
-FixTitle.BorderSizePixel = 0
-FixTitle.Parent = TitleBar
+TabEsp:CreateToggle({
+    Name = "ESP Лута и Трупов",
+    CurrentValue = true,
+    Flag = "EspLoot",
+    Callback = function(v) 
+        espLoot = v
+        if not v then
+            for _, hl in pairs(lootHighlights) do hl:Destroy() end
+            lootHighlights = {}
+        end
+    end,
+})
 
-local TitleText = Instance.new("TextLabel")
-TitleText.Size = UDim2.new(1, -50, 1, 0)
-TitleText.Position = UDim2.new(0, 12, 0, 0)
-TitleText.Text = "Decay PVP - Aimbot & ESP"
-TitleText.TextColor3 = Color3.fromRGB(240, 240, 240)
-TitleText.TextSize = 14
-TitleText.Font = Enum.Font.GothamBold
-TitleText.BackgroundTransparency = 1
-TitleText.TextXAlignment = Enum.TextXAlignment.Left
-TitleText.Parent = TitleBar
+TabEsp:CreateToggle({
+    Name = "ESP Дверей и Кодов",
+    CurrentValue = true,
+    Flag = "EspDoor",
+    Callback = function(v) 
+        espDoors = v
+        if not v then
+            for _, txt in pairs(doorTexts) do txt:Remove() end
+            doorTexts = {}
+        end
+    end,
+})
 
-local MinimizeButton = Instance.new("TextButton")
-MinimizeButton.Size = UDim2.new(0, 26, 0, 26)
-MinimizeButton.Position = UDim2.new(1, -32, 0, 5)
-MinimizeButton.Text = "-"
-MinimizeButton.BackgroundColor3 = Color3.fromRGB(210, 60, 60)
-MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeButton.TextSize = 16
-MinimizeButton.Font = Enum.Font.GothamBold
-MinimizeButton.Parent = TitleBar
+-- ==================== ЛОГИКА ОТРИСОВКИ ====================
+if hasDrawing then
+    local FovCircle = Drawing.new("Circle")
+    FovCircle.Visible = true
+    FovCircle.Radius = fovSize
+    FovCircle.Color = Color3.fromRGB(255, 255, 255)
+    FovCircle.Thickness = 1.5
+    FovCircle.Filled = false
+    FovCircle.Transparency = 0.8
 
-local UICornerMin = Instance.new("UICorner")
-UICornerMin.CornerRadius = UDim.new(0, 6)
-UICornerMin.Parent = MinimizeButton
+    local function setupEsp(p)
+        if p == LocalPlayer or espCache[p] then return end
+        local box = Drawing.new("Square")
+        box.Visible = false; box.Color = Color3.fromRGB(255, 0, 0); box.Thickness = 1
+        
+        local text = Drawing.new("Text")
+        text.Visible = false; text.Size = 16; text.Center = true; text.Outline = true; text.Color = Color3.fromRGB(255, 255, 255)
+        
+        espCache[p] = { Box = box, Text = text }
+    end
 
-local Container = Instance.new("ScrollingFrame")
-Container.Size = UDim2.new(1, -20, 1, -50)
-Container.Position = UDim2.new(0, 10, 0, 42)
-Container.BackgroundTransparency = 1
-Container.BorderSizePixel = 0
-Container.CanvasSize = UDim2.new(0, 0, 0, 500)
-Container.ScrollBarThickness = 4
-Container.Parent = MainFrame
+    for _, p in ipairs(Players:GetPlayers()) do setupEsp(p) end
+    Players.PlayerAdded:Connect(setupEsp)
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 8)
-UIListLayout.Parent = Container
+    RunService.RenderStepped:Connect(function()
+        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        
+        FovCircle.Position = center
+        FovCircle.Radius = fovSize
 
-local function CreateToggleItem(text, defaultState, callback)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, 0, 0, 42)
-	btn.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-	btn.BorderSizePixel = 0
-	btn.Text = ""
-	btn.AutoButtonColor = false
-	btn.Parent = Container
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = btn
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, -60, 1, 0)
-	label.Position = UDim2.new(0, 12, 0, 0)
-	label.BackgroundTransparency = 1
-	label.Text = text
-	label.TextColor3 = Color3.fromRGB(220, 220, 220)
-	label.TextSize = 13
-	label.Font = Enum.Font.GothamMedium
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Parent = btn
-	local indicator = Instance.new("Frame")
-	indicator.Size = UDim2.new(0, 22, 0, 22)
-	indicator.Position = UDim2.new(1, -32, 0.5, -11)
-	indicator.BackgroundColor3 = defaultState and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(60, 60, 75)
-	indicator.BorderSizePixel = 0
-	indicator.Parent = btn
-	local indCorner = Instance.new("UICorner")
-	indCorner.CornerRadius = UDim.new(0, 6)
-	indCorner.Parent = indicator
-	local state = defaultState
-	btn.MouseButton1Click:Connect(function()
-		state = not state
-		indicator.BackgroundColor3 = state and Color3.fromRGB(50, 205, 50) or Color3.fromRGB(60, 60, 75)
-		callback(state)
-	end)
+        local closestTarget = nil
+        local minDist = fovSize
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local esp = espCache[player]
+                local char = player.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local head = char and char:FindFirstChild("Head")
+                local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+
+                if esp and char and hrp and head and humanoid and humanoid.Health > 0 then
+                    local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+                    
+                    -- ТУТ ПРОВЕРКА НА 5000 МЕТРОВ
+                    if dist <= maxDistance then
+                        local topPos, topOn = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
+                        local botPos, botOn = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.5, 0))
+
+                        if (topOn or botOn) and topPos.Z > 0 then
+                            if espPlayers then
+                                local h = math.abs(topPos.Y - botPos.Y)
+                                esp.Box.Size = Vector2.new(h / 2, h)
+                                esp.Box.Position = Vector2.new(topPos.X - h/4, topPos.Y)
+                                esp.Box.Visible = true
+                                
+                                esp.Text.Text = player.Name .. " | " .. math.floor(humanoid.Health) .. " HP | " .. math.floor(dist) .. "m"
+                                esp.Text.Position = Vector2.new(topPos.X, topPos.Y - 20)
+                                esp.Text.Visible = true
+                            else
+                                esp.Box.Visible = false; esp.Text.Visible = false
+                            end
+                        else
+                            esp.Box.Visible = false; esp.Text.Visible = false
+                        end
+                    else
+                        esp.Box.Visible = false; esp.Text.Visible = false
+                    end
+
+                    if aimbotEnabled then
+                        local headPos, headOn = Camera:WorldToViewportPoint(head.Position)
+                        if headOn and headPos.Z > 0 then
+                            local d = (Vector2.new(headPos.X, headPos.Y) - center).Magnitude
+                            if d < minDist then
+                                minDist = d
+                                closestTarget = head
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if aimbotEnabled and closestTarget then
+            local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, closestTarget.Position)
+            if aimSmoothness > 1 then
+                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 1 / (aimSmoothness * 1.5))
+            else
+                Camera.CFrame = targetCFrame
+            end
+        end
+    end)
 end
 
-local function CreateSliderItem(text, min, max, defaultVal, callback)
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.new(1, 0, 0, 56)
-	frame.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-	frame.BorderSizePixel = 0
-	frame.Parent = Container
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = frame
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, -24, 0, 25)
-	label.Position = UDim2.new(0, 12, 0, 4)
-	label.BackgroundTransparency = 1
-	label.Text = text .. ": " .. defaultVal
-	label.TextColor3 = Color3.fromRGB(220, 220, 220)
-	label.TextSize = 13
-	label.Font = Enum.Font.GothamMedium
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Parent = frame
-	local sliderBar = Instance.new("Frame")
-	sliderBar.Size = UDim2.new(1, -24, 0, 6)
-	sliderBar.Position = UDim2.new(0, 12, 0, 36)
-	sliderBar.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-	sliderBar.BorderSizePixel = 0
-	sliderBar.Parent = frame
-	local barCorner = Instance.new("UICorner")
-	barCorner.CornerRadius = UDim.new(1, 0)
-	barCorner.Parent = sliderBar
-	local sliderFill = Instance.new("Frame")
-	sliderFill.Size = UDim2.new((defaultVal - min) / (max - min), 0, 1, 0)
-	sliderFill.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
-	sliderFill.BorderSizePixel = 0
-	sliderFill.Parent = sliderBar
-	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(1, 0)
-	fillCorner.Parent = sliderFill
-	local dragging = false
-	sliderBar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true end
-	end)
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			local mousePos = UserInputService:GetMouseLocation().X
-			local barPos = sliderBar.AbsolutePosition.X
-			local barSize = sliderBar.AbsoluteSize.X
-			local percent = math.clamp((mousePos - barPos) / barSize, 0, 1)
-			local val = math.floor(min + (max - min) * percent)
-			sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-			label.Text = text .. ": " .. val
-			callback(val)
-		end
-	end)
-end
-
-MinimizeButton.MouseButton1Click:Connect(function()
-	local menuVisible = MinimizeButton.Text == "-"
-	MinimizeButton.Text = menuVisible and "+" or "-"
-	Container.Visible = not menuVisible
-	MainFrame.Size = menuVisible and UDim2.new(0, 480, 0, 36) or UDim2.new(0, 480, 0, 460)
-end)
-
-CreateToggleItem("Aimbot", false, function(state) aimbotEnabled = state end)
-CreateToggleItem("FOV Circle", true, function(state) fovEnabled = state end)
-CreateSliderItem("FOV Size", 50, 400, currentFovRadius, function(val) currentFovRadius = val end)
-CreateToggleItem("ESP Box", true, function(state) espBoxEnabled = state if not state then for _, data in pairs(espCache) do if data.Box then data.Box.Visible = false end end end end)
-CreateToggleItem("ESP Line", true, function(state) espLineEnabled = state if not state then for _, data in pairs(espCache) do if data.Tracer then data.Tracer.Visible = false end end end end)
-CreateToggleItem("ESP Names + HP", true, function(state) espNameEnabled = state if not state then for _, data in pairs(espCache) do if data.NameText then data.NameText.Visible = false end end end end) 
-CreateToggleItem("Wall Check", true, function(state) wallCheckEnabled = state end)
-CreateSliderItem("Max Distance", 100, 10000, maxAimDistance, function(val) maxAimDistance = val end) 
-CreateToggleItem("Team Check", false, function(state) teamCheckEnabled = state end)
-CreateToggleItem("Loot & Corpse ESP", true, function(state) 
-	lootEspEnabled = state 
-	if not state then
-		for _, hl in pairs(lootHighlights) do hl:Destroy() end
-		lootHighlights = {}
-	end
-end)
-
--- ==================== ESP ====================
-local function createEspObjects(player)
-	if espCache[player] then return end
-	local box = Drawing.new("Square")
-	box.Visible = false; box.Color = Color3.fromRGB(255, 0, 0); box.Thickness = 1; box.Filled = false; box.Transparency = 0.8
-	local tracer = Drawing.new("Line")
-	tracer.Visible = false; tracer.Color = Color3.fromRGB(255, 255, 0); tracer.Thickness = 1; tracer.Transparency = 0.7
-	local nameText = Drawing.new("Text")
-	nameText.Visible = false; nameText.Size = 16; nameText.Center = true; nameText.Outline = true; nameText.Color = Color3.fromRGB(255, 255, 255)
-	espCache[player] = { Box = box, Tracer = tracer, NameText = nameText }
-end
-
-local function removeEspObjects(player)
-	if espCache[player] then
-		if espCache[player].Box then espCache[player].Box:Remove() end
-		if espCache[player].Tracer then espCache[player].Tracer:Remove() end
-		if espCache[player].NameText then espCache[player].NameText:Remove() end
-		espCache[player] = nil
-	end
-end
-
-for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then createEspObjects(p) end end
-Players.PlayerAdded:Connect(createEspObjects)
-Players.PlayerRemoving:Connect(removeEspObjects)
-
--- ==================== LOOT ESP ====================
-local lootNames = {"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", "Bag", "Backpack", "Safe", "Locker", "Cabinet", "Weapon", "Gun", "Ammo", "Item"}
-
+-- ==================== СКАНЕР КАРТЫ (ЛУТ И ДВЕРИ НА 5К) ====================
 task.spawn(function()
-	while task.wait(1) do
-		if not lootEspEnabled then continue end
-		for obj, hl in pairs(lootHighlights) do
-			if not obj.Parent or not obj:IsDescendantOf(workspace) then
-				hl:Destroy()
-				lootHighlights[obj] = nil
-			end
-		end
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
-				local name = obj.Name:lower()
-				local isLoot, isNpc, isDeadPlayer = false, false, false
-				local plr = Players:GetPlayerFromCharacter(obj)
-				local humanoid = obj:FindFirstChildOfClass("Humanoid")
+    local lootNames = {"Chest", "Crate", "Loot", "Box", "Airdrop", "Supply", "Container", "Barrel", "Bag", "Backpack", "Safe", "Locker", "Cabinet", "Weapon", "Gun", "Ammo", "Item"}
+    local doorNames = {"door", "gate", "fence", "keypad", "lock", "passcode", "code", "barrier", "entrance"}
 
-				if plr and humanoid and humanoid.Health <= 0 then isDeadPlayer = true end
-				if not plr and humanoid and humanoid.Health > 0 then isNpc = true end
+    while task.wait(1.5) do 
+        for obj, hl in pairs(lootHighlights) do
+            if not obj.Parent then hl:Destroy(); lootHighlights[obj] = nil end
+        end
 
-				for _, keyword in ipairs(lootNames) do
-					if name:find(keyword:lower()) then isLoot = true break end
-				end
+        local localChar = LocalPlayer.Character
+        local localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
+        if not localHRP then continue end
 
-				if (isLoot or isDeadPlayer) and not isNpc then
-					if not lootHighlights[obj] then
-						local hl = Instance.new("Highlight")
-						hl.Adornee = obj
-						hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-						if isDeadPlayer then
-							hl.FillColor = Color3.fromRGB(255, 0, 0)
-							hl.OutlineColor = Color3.fromRGB(255, 100, 100)
-						else
-							hl.FillColor = Color3.fromRGB(255, 255, 0)
-							hl.OutlineColor = Color3.fromRGB(255, 165, 0)
-						end
-						hl.FillTransparency = 0.5
-						hl.OutlineTransparency = 0.1
-						hl.Parent = workspace
-						lootHighlights[obj] = hl
-					end
-				end
-			end
-		end
-	end
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local name = obj.Name:lower()
+                local isLoot, isDoor, isNpc, isDeadPlayer = false, false, false, false
+                
+                local objPos = obj:IsA("Model") and (obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position) or obj.Position
+                
+                -- Сканируем в радиусе 5000
+                if localHRP and objPos and (localHRP.Position - objPos).Magnitude > 5000 then continue end
+
+                local plr = Players:GetPlayerFromCharacter(obj)
+                local humanoid = obj:FindFirstChildOfClass("Humanoid")
+                if plr and humanoid and humanoid.Health <= 0 then isDeadPlayer = true end
+                if not plr and humanoid and humanoid.Health > 0 then isNpc = true end
+
+                for _, kw in ipairs(lootNames) do if name:find(kw) then isLoot = true break end end
+                for _, kw in ipairs(doorNames) do if name:find(kw) then isDoor = true break end end
+
+                -- ЛУТ
+                if espLoot and (isLoot or isDeadPlayer) and not isNpc then
+                    if not lootHighlights[obj] then
+                        local hl = Instance.new("Highlight")
+                        hl.Adornee = obj
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        if isDeadPlayer then
+                            hl.FillColor = Color3.fromRGB(255, 0, 0); hl.OutlineColor = Color3.fromRGB(255, 100, 100)
+                        else
+                            hl.FillColor = Color3.fromRGB(255, 255, 0); hl.OutlineColor = Color3.fromRGB(255, 165, 0)
+                        end
+                        hl.FillTransparency = 0.6
+                        hl.Parent = workspace
+                        lootHighlights[obj] = hl
+                    end
+                end
+
+                -- ДВЕРИ
+                if espDoors and isDoor and hasDrawing then
+                    local code = nil
+                    for _, child in ipairs(obj:GetChildren()) do
+                        if child:IsA("StringValue") or child:IsA("IntValue") then
+                            if child.Name:lower():find("code") or child.Name:lower():find("pass") then
+                                code = tostring(child.Value)
+                            end
+                        end
+                    end
+                    for attr, val in pairs(obj:GetAttributes()) do
+                        if attr:lower():find("code") or attr:lower():find("pass") then code = tostring(val) end
+                    end
+
+                    if code then
+                        if not doorTexts[obj] then doorTexts[obj] = Drawing.new("Text") end
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(objPos + Vector3.new(0, 3, 0))
+                        
+                        doorTexts[obj].Visible = onScreen
+                        if onScreen then
+                            doorTexts[obj].Text = "Код: " .. code
+                            doorTexts[obj].Position = Vector2.new(screenPos.X, screenPos.Y)
+                            doorTexts[obj].Color = Color3.fromRGB(0, 255, 0)
+                            doorTexts[obj].Size = 18
+                            doorTexts[obj].Outline = true
+                        end
+                    end
+                end
+            end
+        end
+    end
 end)
-
--- ==================== AIMBOT ====================
-local function IsVisible(targetPart)
-	if not wallCheckEnabled then return true end
-	local localChar = LocalPlayer.Character
-	if not localChar then return false end
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = {localChar, targetPart.Parent}
-	raycastParams.IgnoreWater = true
-	local result = workspace:Raycast(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position), raycastParams)
-	return result == nil
-end
-
-local function GetClosestTarget()
-	local bestTarget = nil
-	local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-	local shortestDist = currentFovRadius
-	local localChar = LocalPlayer.Character
-	local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer then
-			local isTeam = teamCheckEnabled and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team
-			if not isTeam then
-				local char = player.Character
-				local rootPart = char and char:FindFirstChild("HumanoidRootPart")
-				local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-				local targetPart = char and (char:FindFirstChild("Head") or rootPart)
-				
-				if humanoid and humanoid.Health > 0 and targetPart and rootPart then
-					local distToPlayer = localRoot and (localRoot.Position - rootPart.Position).Magnitude or 0
-					if distToPlayer <= maxAimDistance then
-						local screenPoint = Camera:WorldToViewportPoint(targetPart.Position)
-						if screenPoint.Z > 0 then
-							local screenPos = Vector2.new(screenPoint.X, screenPoint.Y)
-							local dist = (screenPos - screenCenter).Magnitude
-							if dist < shortestDist and IsVisible(targetPart) then
-								shortestDist = dist
-								bestTarget = targetPart
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-	return bestTarget
-end
-
--- ==================== ОСНОВНОЙ ЦИКЛ ====================
-RunService.RenderStepped:Connect(function()
-	local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-	local localChar = LocalPlayer.Character
-	local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-
-	if aimbotEnabled then
-		pcall(function()
-			local target = GetClosestTarget()
-			if target then Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position) end
-		end)
-	end
-
-	pcall(function()
-		for _, player in ipairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer then
-				local esp = espCache[player]
-				local char = player.Character
-				local hrp = char and char:FindFirstChild("HumanoidRootPart")
-				local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-
-				if esp and char and hrp and humanoid and humanoid.Health > 0 then
-					local isTeam = teamCheckEnabled and player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team
-					local distToPlayer = localRoot and (localRoot.Position - hrp.Position).Magnitude or 999
-
-					if distToPlayer > maxAimDistance or isTeam then
-						if esp.Box then esp.Box.Visible = false end
-						if esp.Tracer then esp.Tracer.Visible = false end
-						if esp.NameText then esp.NameText.Visible = false end
-					else
-						local topScreen, topVisible = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
-						local bottomScreen, bottomVisible = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.5, 0))
-
-						if (topVisible or bottomVisible) and topScreen.Z > 0 and bottomScreen.Z > 0 then
-							local height = math.abs(topScreen.Y - bottomScreen.Y)
-							local width = height / 2
-							local boxColor = isTeam and Color3.fromRGB(0, 150, 255) or Color3.fromRGB(255, 0, 0)
-
-							if espBoxEnabled and esp.Box then
-								esp.Box.Size = Vector2.new(width, height)
-								esp.Box.Position = Vector2.new(topScreen.X - width / 2, topScreen.Y)
-								esp.Box.Color = boxColor
-								esp.Box.Visible = true
-							elseif esp.Box then
-								esp.Box.Visible = false
-							end
-
-							if espLineEnabled and esp.Tracer then
-								esp.Tracer.From = Vector2.new(screenCenter.X, Camera.ViewportSize.Y)
-								esp.Tracer.To = Vector2.new(bottomScreen.X, bottomScreen.Y)
-								esp.Tracer.Visible = true
-							elseif esp.Tracer then
-								esp.Tracer.Visible = false
-							end
-
-							if espNameEnabled and esp.NameText then
-								local showName = player.DisplayName or player.Name
-								local hp = math.floor(humanoid.Health)
-								local maxHp = math.floor(humanoid.MaxHealth)
-								
-								esp.NameText.Text = showName .. " | " .. hp .. "/" .. maxHp .. " HP | " .. math.floor(distToPlayer) .. "m"
-								esp.NameText.Position = Vector2.new(topScreen.X, topScreen.Y - 22)
-								esp.NameText.Color = boxColor
-								esp.NameText.Visible = true
-							elseif esp.NameText then
-								esp.NameText.Visible = false
-							end
-						else
-							if esp.Box then esp.Box.Visible = false end
-							if esp.Tracer then esp.Tracer.Visible = false end
-							if esp.NameText then esp.NameText.Visible = false end
-						end
-					end
-				else
-					if esp then
-						if esp.Box then esp.Box.Visible = false end
-						if esp.Tracer then esp.Tracer.Visible = false end
-						if esp.NameText then esp.NameText.Visible = false end
-					end
-				end
-			end
-		end
-	end)
-end)
-
-print("Скрипт успешно запущен!")
